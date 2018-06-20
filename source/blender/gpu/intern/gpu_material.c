@@ -104,7 +104,7 @@ struct GPUMaterial {
 
 	/* for creating the material */
 	ListBase nodes;
-	GPUNodeLink *outlink;
+	GPUNodeLink *outlinks[8];
 
 	/* for binding the material */
 	GPUPass *pass;
@@ -241,9 +241,16 @@ static void gpu_material_set_attrib_id(GPUMaterial *material)
 
 static int gpu_material_construct_end(GPUMaterial *material, const char *passname)
 {
-	if (material->outlink) {
-		GPUNodeLink *outlink = material->outlink;
-		material->pass = GPU_generate_pass(&material->nodes, outlink,
+	bool used = false;
+	for (unsigned short i = 0; i < 8; ++i) {
+		if (material->outlinks[i]) {
+			used = true;
+			break;
+		}
+	}
+
+	if (used) {
+		material->pass = GPU_generate_pass(&material->nodes, material->outlinks,
 			&material->attribs, &material->builtins, material->type,
 			passname,
 			material->is_opensubdiv,
@@ -559,10 +566,11 @@ void GPU_material_vertex_attributes(GPUMaterial *material, GPUVertexAttribs *att
 	*attribs = material->attribs;
 }
 
-void GPU_material_output_link(GPUMaterial *material, GPUNodeLink *link)
+void GPU_material_output_link(GPUMaterial *material, GPUNodeLink *links[8])
 {
-	if (!material->outlink)
-		material->outlink = link;
+	for (unsigned short i = 0; i < 8; ++i) {
+		material->outlinks[i] = links[i];
+	}
 }
 
 void GPU_material_enable_alpha(GPUMaterial *material)
@@ -2107,7 +2115,7 @@ static GPUNodeLink *gpu_material_preview_matcap(GPUMaterial *mat, Material *ma)
 GPUMaterial *GPU_material_matcap(Scene *scene, Material *ma, bool use_opensubdiv)
 {
 	GPUMaterial *mat;
-	GPUNodeLink *outlink;
+	GPUNodeLink *outlinks[8] = {NULL};
 	LinkData *link;
 
 	for (link = ma->gpumaterial.first; link; link = link->next) {
@@ -2126,13 +2134,13 @@ GPUMaterial *GPU_material_matcap(Scene *scene, Material *ma, bool use_opensubdiv
 	mat->is_opensubdiv = use_opensubdiv;
 
 	if (ma->preview && ma->preview->rect[0]) {
-		outlink = gpu_material_preview_matcap(mat, ma);
+		outlinks[0] = gpu_material_preview_matcap(mat, ma);
 	}
 	else {
-		outlink = gpu_material_diffuse_bsdf(mat, ma);
+		outlinks[0] = gpu_material_diffuse_bsdf(mat, ma);
 	}
 
-	GPU_material_output_link(mat, outlink);
+	GPU_material_output_link(mat, outlinks);
 
 	gpu_material_construct_end(mat, "matcap_pass");
 
@@ -2291,7 +2299,7 @@ static void gpu_material_old_world(struct GPUMaterial *mat, struct World *wo)
 {
 	GPUShadeInput shi;
 	GPUShadeResult shr;
-	GPUNodeLink *hor, *zen, *ray, *blend;
+	GPUNodeLink *hor, *zen, *ray, *blend, *outlinks[8] = {NULL};
 
 	shi.gpumat = mat;
 
@@ -2337,7 +2345,9 @@ static void gpu_material_old_world(struct GPUMaterial *mat, struct World *wo)
 			GPU_link(mat, "set_rgb", hor, &shi.rgb);
 		GPU_link(mat, "set_rgb", shi.rgb, &shr.combined);
 	}
-	GPU_material_output_link(mat, shr.combined);
+
+	outlinks[0] = shr.combined;
+	GPU_material_output_link(mat, outlinks);
 }
 
 GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo)
@@ -2362,9 +2372,12 @@ GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo)
 		gpu_material_old_world(mat, wo);
 	}
 
-	if (GPU_material_do_color_management(mat))
-		if (mat->outlink)
-			GPU_link(mat, "linearrgb_to_srgb", mat->outlink, &mat->outlink);
+	if (GPU_material_do_color_management(mat)) {
+		for (unsigned short i = 0; i < 8; ++i) {
+			if (mat->outlinks[i])
+				GPU_link(mat, "linearrgb_to_srgb", mat->outlinks[i], &mat->outlinks[i]);
+		}
+	}
 
 	gpu_material_construct_end(mat, wo->id.name);
 
@@ -2383,7 +2396,7 @@ GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo)
 GPUMaterial *GPU_material_from_blender(Scene *scene, Material *ma, bool use_opensubdiv, bool is_instancing)
 {
 	GPUMaterial *mat;
-	GPUNodeLink *outlink;
+	GPUNodeLink *outlinks[8] = {NULL};
 	LinkData *link;
 	ListBase *gpumaterials;
 
@@ -2428,19 +2441,23 @@ GPUMaterial *GPU_material_from_blender(Scene *scene, Material *ma, bool use_open
 	else {
 		if (new_shading_nodes) {
 			/* create simple diffuse material instead of nodes */
-			outlink = gpu_material_diffuse_bsdf(mat, ma);
+			outlinks[0] = gpu_material_diffuse_bsdf(mat, ma);
 		}
 		else {
 			/* create blender material */
-			outlink = GPU_blender_material(mat, ma);
+			outlinks[0] = GPU_blender_material(mat, ma);
 		}
 
-		GPU_material_output_link(mat, outlink);
+		GPU_material_output_link(mat, outlinks);
 	}
 
-	if (GPU_material_do_color_management(mat) && !(ma->sss_flag))
-		if (mat->outlink)
-			GPU_link(mat, "linearrgb_to_srgb", mat->outlink, &mat->outlink);
+	if (GPU_material_do_color_management(mat) && !(ma->sss_flag)) {
+		for (unsigned short i = 0; i < 8; ++i) {
+			if (mat->outlinks[i]) {
+				GPU_link(mat, "linearrgb_to_srgb", mat->outlinks[i], &mat->outlinks[i]);
+			}
+		}
+	}
 
 	gpu_material_construct_end(mat, ma->id.name);
 
