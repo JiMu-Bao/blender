@@ -167,7 +167,7 @@ static const char *gpu_shader_version(void)
 			return "#version 330 compatibility\n";
 		}
 	}
-	else if (GLEW_VERSION_3_2) {
+	if (GLEW_VERSION_3_2) {
 		if (GLEW_ARB_compatibility) {
 			return "#version 150 compatibility\n";
 			/* highest version that is widely supported
