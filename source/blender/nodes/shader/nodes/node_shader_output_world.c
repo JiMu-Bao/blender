@@ -37,10 +37,10 @@ static bNodeSocketTemplate sh_node_output_world_in[] = {
 
 static int node_shader_gpu_output_world(GPUMaterial *mat, bNode *UNUSED(node), bNodeExecData *UNUSED(execdata), GPUNodeStack *in, GPUNodeStack *out)
 {
-	GPUNodeLink *outlink;
+	GPUNodeLink *outlinks[8] = {NULL};
 
-	GPU_stack_link(mat, "node_output_world", in, out, &outlink);
-	GPU_material_output_link(mat, outlink);
+	GPU_stack_link(mat, "node_output_world", in, out, &outlinks[0]);
+	GPU_material_output_link(mat, outlinks);
 
 	return true;
 }

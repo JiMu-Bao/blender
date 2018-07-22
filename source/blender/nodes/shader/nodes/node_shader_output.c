@@ -67,15 +67,15 @@ static void node_shader_exec_output(void *data, int UNUSED(thread), bNode *node,
 
 static int gpu_shader_output(GPUMaterial *mat, bNode *UNUSED(node), bNodeExecData *UNUSED(execdata), GPUNodeStack *in, GPUNodeStack *out)
 {
-	GPUNodeLink *outlink;
+	GPUNodeLink *outlinks[8] = {NULL};
 
 #if 0
 	if (in[1].hasinput)
 		GPU_material_enable_alpha(mat);
 #endif
 
-	GPU_stack_link(mat, "output_node", in, out, &outlink);
-	GPU_material_output_link(mat, outlink);
+	GPU_stack_link(mat, "output_node", in, out, &outlinks[0]);
+	GPU_material_output_link(mat, outlinks);
 
 	return 1;
 }
