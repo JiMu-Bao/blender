@@ -566,11 +566,9 @@ void GPU_material_vertex_attributes(GPUMaterial *material, GPUVertexAttribs *att
 	*attribs = material->attribs;
 }
 
-void GPU_material_output_link(GPUMaterial *material, GPUNodeLink *links[8])
+void GPU_material_output_link(GPUMaterial *material, GPUNodeLink *link, unsigned short index)
 {
-	for (unsigned short i = 0; i < 8; ++i) {
-		material->outlinks[i] = links[i];
-	}
+	material->outlinks[index] = link;
 }
 
 void GPU_material_enable_alpha(GPUMaterial *material)
@@ -2115,7 +2113,7 @@ static GPUNodeLink *gpu_material_preview_matcap(GPUMaterial *mat, Material *ma)
 GPUMaterial *GPU_material_matcap(Scene *scene, Material *ma, bool use_opensubdiv)
 {
 	GPUMaterial *mat;
-	GPUNodeLink *outlinks[8] = {NULL};
+	GPUNodeLink *outlink;
 	LinkData *link;
 
 	for (link = ma->gpumaterial.first; link; link = link->next) {
@@ -2134,13 +2132,13 @@ GPUMaterial *GPU_material_matcap(Scene *scene, Material *ma, bool use_opensubdiv
 	mat->is_opensubdiv = use_opensubdiv;
 
 	if (ma->preview && ma->preview->rect[0]) {
-		outlinks[0] = gpu_material_preview_matcap(mat, ma);
+		outlink = gpu_material_preview_matcap(mat, ma);
 	}
 	else {
-		outlinks[0] = gpu_material_diffuse_bsdf(mat, ma);
+		outlink = gpu_material_diffuse_bsdf(mat, ma);
 	}
 
-	GPU_material_output_link(mat, outlinks);
+	GPU_material_output_link(mat, outlink, 0);
 
 	gpu_material_construct_end(mat, "matcap_pass");
 
@@ -2299,7 +2297,7 @@ static void gpu_material_old_world(struct GPUMaterial *mat, struct World *wo)
 {
 	GPUShadeInput shi;
 	GPUShadeResult shr;
-	GPUNodeLink *hor, *zen, *ray, *blend, *outlinks[8] = {NULL};
+	GPUNodeLink *hor, *zen, *ray, *blend;
 
 	shi.gpumat = mat;
 
@@ -2346,8 +2344,7 @@ static void gpu_material_old_world(struct GPUMaterial *mat, struct World *wo)
 		GPU_link(mat, "set_rgb", shi.rgb, &shr.combined);
 	}
 
-	outlinks[0] = shr.combined;
-	GPU_material_output_link(mat, outlinks);
+	GPU_material_output_link(mat, shr.combined, 0);
 }
 
 GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo)
@@ -2396,7 +2393,6 @@ GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo)
 GPUMaterial *GPU_material_from_blender(Scene *scene, Material *ma, bool use_opensubdiv, bool is_instancing)
 {
 	GPUMaterial *mat;
-	GPUNodeLink *outlinks[8] = {NULL};
 	LinkData *link;
 	ListBase *gpumaterials;
 
@@ -2439,16 +2435,17 @@ GPUMaterial *GPU_material_from_blender(Scene *scene, Material *ma, bool use_open
 			ntreeGPUMaterialNodes(ma->nodetree, mat, NODE_OLD_SHADING);
 	}
 	else {
+		GPUNodeLink *outlink;
 		if (new_shading_nodes) {
 			/* create simple diffuse material instead of nodes */
-			outlinks[0] = gpu_material_diffuse_bsdf(mat, ma);
+			outlink = gpu_material_diffuse_bsdf(mat, ma);
 		}
 		else {
 			/* create blender material */
-			outlinks[0] = GPU_blender_material(mat, ma);
+			outlink = GPU_blender_material(mat, ma);
 		}
 
-		GPU_material_output_link(mat, outlinks);
+		GPU_material_output_link(mat, outlink, 0);
 	}
 
 	if (GPU_material_do_color_management(mat) && !(ma->sss_flag)) {
