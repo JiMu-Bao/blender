@@ -1871,7 +1871,7 @@ void ntreeSetOutput(bNodeTree *ntree)
 			int output = 0;
 			
 			/* we need a check for which output node should be tagged like this, below an exception */
-			if (ELEM(node->type, CMP_NODE_OUTPUT_FILE, SH_NODE_OUTPUT_ATTACHEMENT))
+			if (ELEM(node->type, CMP_NODE_OUTPUT_FILE, SH_NODE_OUTPUT_ATTACHMENT))
 				continue;
 
 			/* there is more types having output class, each one is checked */
@@ -3626,7 +3626,7 @@ static void registerShaderNodes(void)
 	register_node_type_sh_uvmap();
 	register_node_type_sh_uvalongstroke();
 
-	register_node_type_sh_output_attachement();
+	register_node_type_sh_output_attachment();
 	register_node_type_sh_output_lamp();
 	register_node_type_sh_output_material();
 	register_node_type_sh_output_world();

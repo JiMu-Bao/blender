@@ -48,11 +48,11 @@ static int gpu_shader_output(GPUMaterial *mat, bNode *node, bNodeExecData *UNUSE
 	return 1;
 }
 
-void register_node_type_sh_output_attachement(void)
+void register_node_type_sh_output_attachment(void)
 {
 	static bNodeType ntype;
 
-	sh_node_type_base(&ntype, SH_NODE_OUTPUT_ATTACHEMENT, "Attachement Output", NODE_CLASS_OUTPUT, NODE_DO_OUTPUT);
+	sh_node_type_base(&ntype, SH_NODE_OUTPUT_ATTACHMENT, "Attachment Output", NODE_CLASS_OUTPUT, NODE_DO_OUTPUT);
 	node_type_compatibility(&ntype, NODE_OLD_SHADING);
 	node_type_socket_templates(&ntype, sh_node_output_in, NULL);
 	node_type_gpu(&ntype, gpu_shader_output);

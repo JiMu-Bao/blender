@@ -198,28 +198,23 @@ void LA_Launcher::InitEngine()
 		m_canvas->SetSwapInterval((gm.vsync == VSYNC_ON) ? 1 : 0);
 	}
 
-	// Set canvas multisamples.
-	m_canvas->SetSamples(m_samples);
+	static RAS_Rasterizer::HdrType hdrTable[] = {
+		RAS_Rasterizer::RAS_HDR_NONE, // GAME_HDR_NONE
+		RAS_Rasterizer::RAS_HDR_HALF_FLOAT, // GAME_HDR_HALF_FLOAT
+		RAS_Rasterizer::RAS_HDR_FULL_FLOAT // GAME_HDR_FULL_FLOAT
+	};
 
-	RAS_Rasterizer::HdrType hdrtype = RAS_Rasterizer::RAS_HDR_NONE;
-	switch (gm.hdr) {
-		case GAME_HDR_NONE:
-		{
-			hdrtype = RAS_Rasterizer::RAS_HDR_NONE;
-			break;
-		}
-		case GAME_HDR_HALF_FLOAT:
-		{
-			hdrtype = RAS_Rasterizer::RAS_HDR_HALF_FLOAT;
-			break;
-		}
-		case GAME_HDR_FULL_FLOAT:
-		{
-			hdrtype = RAS_Rasterizer::RAS_HDR_FULL_FLOAT;
-			break;
+	RAS_OffScreen::AttachmentList attachments;
+	attachments.push_back({4, hdrTable[gm.hdr]});
+	for (unsigned short i = 0; i < 7; ++i) {
+		RenderAttachment *attach = gm.attachments[i];
+		if (attach) {
+			attachments.push_back({(unsigned short)attach->size, hdrTable[attach->hdr]});
 		}
 	}
-	m_canvas->SetHdrType(hdrtype);
+	m_canvas->SetAttachments(attachments);
+
+	m_canvas->SetSamples(m_samples);
 
 	m_canvas->Init();
 	if (gm.flag & GAME_SHOW_MOUSE) {

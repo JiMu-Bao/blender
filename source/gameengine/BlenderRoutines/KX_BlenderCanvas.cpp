@@ -54,12 +54,11 @@ extern "C" {
 }
 
 KX_BlenderCanvas::KX_BlenderCanvas(RAS_Rasterizer *rasty, wmWindowManager *wm, wmWindow *win, RAS_Rect &rect)
-	:RAS_ICanvas(rasty),
-	m_wm(wm),
+	:m_wm(wm),
 	m_win(win),
 	m_area_rect(rect) // initialize area so that it's available for game logic on frame 1 (ImageViewport)
 {
-	m_rasterizer->GetViewport(m_viewport);
+	rasty->GetViewport(m_viewport);
 }
 
 KX_BlenderCanvas::~KX_BlenderCanvas()

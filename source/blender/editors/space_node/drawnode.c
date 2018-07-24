@@ -1160,9 +1160,9 @@ static void node_shader_buts_script_ex(uiLayout *layout, bContext *C, PointerRNA
 #endif
 }
 
-static void node_buts_output_attachement(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
+static void node_buts_output_attachment(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
 {
-	uiItemR(layout, ptr, "attachement", 0, NULL, ICON_NONE);
+	uiItemR(layout, ptr, "attachment", 0, NULL, ICON_NONE);
 }
 
 static void node_buts_output_linestyle(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
@@ -1324,8 +1324,8 @@ static void node_shader_set_butfunc(bNodeType *ntype)
 		case SH_NODE_UVALONGSTROKE:
 			ntype->draw_buttons = node_shader_buts_uvalongstroke;
 			break;
-		case SH_NODE_OUTPUT_ATTACHEMENT:
-			ntype->draw_buttons = node_buts_output_attachement;
+		case SH_NODE_OUTPUT_ATTACHMENT:
+			ntype->draw_buttons = node_buts_output_attachment;
 			break;
 		case SH_NODE_OUTPUT_LINESTYLE:
 			ntype->draw_buttons = node_buts_output_linestyle;

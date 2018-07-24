@@ -43,9 +43,8 @@ static struct GPUFrameBufferGlobal {
 	GLuint currentfb;
 } GG = {0};
 
-/* Number of maximum output slots.
- * We support 4 outputs for now (usually we wouldn't need more to preserve fill rate) */
-#define GPU_FB_MAX_SLOTS 4
+// Number of maximum output slots.
+#define GPU_FB_MAX_SLOTS 8
 
 struct GPUFrameBuffer {
 	GLuint object;
@@ -322,7 +321,6 @@ void GPU_framebuffer_bind_no_save(GPUFrameBuffer *fb, int slot)
 	/* push matrices and set default viewport and matrix */
 	glViewport(0, 0, GPU_texture_width(fb->colortex[slot]), GPU_texture_height(fb->colortex[slot]));
 	GG.currentfb = fb->object;
-	GG.currentfb = fb->object;
 }
 
 void GPU_framebuffer_bind_simple(GPUFrameBuffer *fb)
@@ -335,20 +333,21 @@ void GPU_framebuffer_bind_simple(GPUFrameBuffer *fb)
 	GG.currentfb = fb->object;
 }
 
-void GPU_framebuffer_bind_all_attachments(GPUFrameBuffer *fb)
+static const GLenum attachments[GPU_FB_MAX_SLOTS] = {
+	GL_COLOR_ATTACHMENT0_EXT,
+	GL_COLOR_ATTACHMENT1_EXT,
+	GL_COLOR_ATTACHMENT2_EXT,
+	GL_COLOR_ATTACHMENT3_EXT,
+	GL_COLOR_ATTACHMENT4_EXT,
+	GL_COLOR_ATTACHMENT5_EXT,
+	GL_COLOR_ATTACHMENT6_EXT,
+	GL_COLOR_ATTACHMENT7_EXT
+};
+
+void GPU_framebuffer_bind_all_attachments(GPUFrameBuffer *fb, int numAttachment)
 {
-	int slots = 0, i;
-	GLenum attachments[GPU_FB_MAX_SLOTS];
-
-	for(i = 0; i < GPU_FB_MAX_SLOTS; i++) {
-		if (fb->colortex[i]) {
-			attachments[slots] = GL_COLOR_ATTACHMENT0_EXT + i;
-			slots++;
-		}
-	}
-
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, fb->object);
-	glDrawBuffers(slots, attachments);
+	glDrawBuffers(numAttachment, attachments);
 	glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
 
 	GG.currentfb = fb->object;
@@ -567,6 +566,27 @@ void GPU_framebuffer_blur(
 
 	GPU_texture_unbind(blurtex);
 	GPU_shader_unbind();
+}
+
+void GPU_framebuffer_blit(GPUFrameBuffer *srcfb, GPUFrameBuffer *dstfb, int width, int height,
+		int numAttachment, bool depth)
+{
+	int mask = GL_COLOR_BUFFER_BIT;
+	if (depth) {
+		mask |= GL_DEPTH_BUFFER_BIT;
+	}
+
+	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, srcfb->object);
+	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, dstfb->object);
+
+	for (unsigned short i = 0; i < numAttachment; ++i) {
+		glDrawBuffer(GL_COLOR_ATTACHMENT0 + i);
+		glReadBuffer(GL_COLOR_ATTACHMENT0 + i);
+
+		glBlitFramebufferEXT(0, 0, width, height, 0, 0, width, height, mask, GL_NEAREST);
+	}
+
+	// TODO bind after
 }
 
 /* GPURenderBuffer */
@@ -925,8 +945,6 @@ finally:
 
 void GPU_offscreen_blit(GPUOffScreen *srcofs, GPUOffScreen *dstofs, bool color, bool depth)
 {
-	BLI_assert(color || depth);
-
 	glBindFramebufferEXT(GL_READ_FRAMEBUFFER_EXT, srcofs->fb->object);
 	glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER_EXT, dstofs->fb->object);
 

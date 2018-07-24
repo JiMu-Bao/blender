@@ -39,7 +39,7 @@
 #include "EXP_Python.h"
 #include "KX_WorldInfo.h"
 #include "RAS_CameraData.h"
-#include "RAS_Rasterizer.h"
+#include "RAS_ICanvas.h"
 #include "RAS_DebugDraw.h"
 #include <vector>
 
@@ -136,9 +136,9 @@ private:
 	/// Data used to render a frame.
 	struct FrameRenderData
 	{
-		FrameRenderData(RAS_Rasterizer::OffScreenType ofsType);
+		FrameRenderData(RAS_OffScreen::Type ofsType);
 
-		RAS_Rasterizer::OffScreenType m_ofsType;
+		RAS_OffScreen::Type m_ofsType;
 		std::vector<SceneRenderData> m_sceneDataList;
 	};
 

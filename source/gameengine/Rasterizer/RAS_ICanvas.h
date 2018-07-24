@@ -32,7 +32,7 @@
 #ifndef __RAS_ICANVAS_H__
 #define __RAS_ICANVAS_H__
 
-#include "RAS_Rasterizer.h" // for RAS_Rasterizer::HdrType
+#include "RAS_OffScreen.h" // For RAS_OffScreen::Type
 
 class RAS_Rect;
 struct TaskScheduler;
@@ -52,7 +52,7 @@ public:
 		MOUSE_NORMAL
 	};
 
-	RAS_ICanvas(RAS_Rasterizer *rasty);
+	RAS_ICanvas();
 	virtual ~RAS_ICanvas();
 
 	virtual void Init() = 0;
@@ -83,8 +83,8 @@ public:
 	void SetSamples(int samples);
 	int GetSamples() const;
 
-	void SetHdrType(RAS_Rasterizer::HdrType type);
-	RAS_Rasterizer::HdrType GetHdrType() const;
+	const RAS_OffScreen::AttachmentList& GetAttachments() const;
+	void SetAttachments(const RAS_OffScreen::AttachmentList& attachments);
 
 	virtual int GetWidth() const = 0;
 	virtual int GetHeight() const = 0;
@@ -134,7 +134,7 @@ public:
 
 	virtual void MakeScreenShot(const std::string& filename) = 0;
 	/// Proceed the actual screenshot at the frame end.
-	void FlushScreenshots();
+	void FlushScreenshots(RAS_Rasterizer *rasty);
 
 	virtual void GetDisplayDimensions(int &width, int &height) = 0;
 
@@ -146,10 +146,10 @@ public:
 	virtual void SetFullScreen(bool enable) = 0;
 	virtual bool GetFullScreen() = 0;
 
-	RAS_Rasterizer *GetRasterizer()
-	{
-		return m_rasterizer;
-	}
+	/** Return the corresponding off screen to off screen type.
+	 * \param type The off screen type to return.
+	 */
+	RAS_OffScreen *GetOffScreen(RAS_OffScreen::Type type);
 
 protected:
 	struct Screenshot
@@ -164,8 +164,9 @@ protected:
 
 	std::vector<Screenshot> m_screenshots;
 
+	std::unique_ptr<RAS_OffScreen> m_offScreens[RAS_OffScreen::RAS_OFFSCREEN_MAX];
 	int m_samples;
-	RAS_Rasterizer::HdrType m_hdrType;
+	RAS_OffScreen::AttachmentList m_attachments;
 
 	RAS_MouseState m_mousestate;
 	/// frame number for screenshots.
@@ -183,7 +184,10 @@ protected:
 	 * Saves screenshot data to a file. The actual compression and disk I/O is performed in
 	 * a separate thread.
 	 */
-	void SaveScreeshot(const Screenshot& screenshot);
+	void SaveScreeshot(const Screenshot& screenshot, RAS_Rasterizer *rasty);
+
+	/// Update dimensions of all off screens.
+	void UpdateOffScreens();
 };
 
 #endif  // __RAS_ICANVAS_H__

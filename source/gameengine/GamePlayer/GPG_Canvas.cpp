@@ -45,12 +45,11 @@
 #include "DNA_space_types.h"
 
 GPG_Canvas::GPG_Canvas(RAS_Rasterizer *rasty, GHOST_IWindow *window)
-	:RAS_ICanvas(rasty),
-	m_window(window),
+	:m_window(window),
 	m_width(0),
 	m_height(0)
 {
-	m_rasterizer->GetViewport(m_viewport);
+	rasty->GetViewport(m_viewport);
 
 	if (m_window) {
 		GHOST_Rect bnds;

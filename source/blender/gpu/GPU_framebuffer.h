@@ -66,7 +66,7 @@ void GPU_framebuffer_renderbuffer_detach(GPURenderBuffer *rb);
 
 void GPU_framebuffer_bind_no_save(GPUFrameBuffer *fb, int slot);
 void GPU_framebuffer_bind_simple(GPUFrameBuffer *fb);
-void GPU_framebuffer_bind_all_attachments(GPUFrameBuffer *fb);
+void GPU_framebuffer_bind_all_attachments(GPUFrameBuffer *fb, int numAttachment);
 
 bool GPU_framebuffer_bound(GPUFrameBuffer *fb);
 
@@ -74,6 +74,8 @@ void GPU_framebuffer_restore(void);
 void GPU_framebuffer_blur(
         GPUFrameBuffer *fb, struct GPUTexture *tex,
         GPUFrameBuffer *blurfb, struct GPUTexture *blurtex, float sharpness);
+void GPU_framebuffer_blit(GPUFrameBuffer *srcfb, GPUFrameBuffer *dstfb, int width, int height,
+		int numAttachment, bool depth);
 
 typedef enum GPURenderBufferType {
 	GPU_RENDERBUFFER_COLOR = 0,
