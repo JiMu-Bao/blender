@@ -437,7 +437,7 @@ void ImageRender::WaitSync()
 #endif
 
 	// this is needed to finalize the image if the target is a texture
-	m_finalOffScreen->MipmapTexture();
+	m_finalOffScreen->MipmapTextures();
 
 	// all rendered operation done and complete, invalidate render for next time
 	m_done = false;

@@ -147,9 +147,9 @@ RAS_OffScreen *RAS_OffScreen::Blit(RAS_OffScreen *dstOffScreen, bool depth)
 	return dstOffScreen;
 }
 
-void RAS_OffScreen::BindColorTexture(unsigned short unit)
+void RAS_OffScreen::BindColorTexture(unsigned short slot, unsigned short unit)
 {
-	GPU_texture_bind(m_colorSlots[0].m_tex, unit);
+	GPU_texture_bind(m_colorSlots[slot].m_tex, unit);
 }
 
 void RAS_OffScreen::BindDepthTexture(unsigned short unit)
@@ -157,9 +157,9 @@ void RAS_OffScreen::BindDepthTexture(unsigned short unit)
 	GPU_texture_bind(m_depthSlot.m_tex, unit);
 }
 
-void RAS_OffScreen::UnbindColorTexture()
+void RAS_OffScreen::UnbindColorTexture(unsigned short slot)
 {
-	GPU_texture_unbind(m_colorSlots[0].m_tex);
+	GPU_texture_unbind(m_colorSlots[slot].m_tex);
 }
 
 void RAS_OffScreen::UnbindDepthTexture()
@@ -167,7 +167,7 @@ void RAS_OffScreen::UnbindDepthTexture()
 	GPU_texture_unbind(m_depthSlot.m_tex);
 }
 
-void RAS_OffScreen::MipmapTexture()
+void RAS_OffScreen::MipmapTextures()
 {
 	for (unsigned short i = 0; i < m_numColorSlots; ++i) {
 		GPUTexture *tex = m_colorSlots[i].m_tex;
@@ -176,7 +176,7 @@ void RAS_OffScreen::MipmapTexture()
 	}
 }
 
-void RAS_OffScreen::UnmipmapTexture()
+void RAS_OffScreen::UnmipmapTextures()
 {
 	for (unsigned short i = 0; i < m_numColorSlots; ++i) {
 		GPU_texture_filter_mode(m_colorSlots[i].m_tex, false, true, false);
@@ -206,6 +206,11 @@ unsigned int RAS_OffScreen::GetHeight() const
 RAS_OffScreen::Type RAS_OffScreen::GetType() const
 {
 	return m_type;
+}
+
+unsigned short RAS_OffScreen::GetNumColorSlot() const
+{
+	return m_numColorSlots;
 }
 
 GPUTexture *RAS_OffScreen::GetDepthTexture()

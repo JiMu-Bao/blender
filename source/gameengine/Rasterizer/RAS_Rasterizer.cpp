@@ -276,7 +276,7 @@ void RAS_Rasterizer::DrawOffScreen(RAS_OffScreen *srcOffScreen, RAS_OffScreen *d
 		dstOffScreen->Bind();
 	}
 	else {
-		srcOffScreen->BindColorTexture(0);
+		srcOffScreen->BindColorTexture(0, 0);
 
 		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_DRAW_FRAME_BUFFER);
 		GPU_shader_bind(shader);
@@ -288,7 +288,7 @@ void RAS_Rasterizer::DrawOffScreen(RAS_OffScreen *srcOffScreen, RAS_OffScreen *d
 
 		GPU_shader_unbind();
 
-		srcOffScreen->UnbindColorTexture();
+		srcOffScreen->UnbindColorTexture(0);
 	}
 }
 
@@ -340,8 +340,8 @@ void RAS_Rasterizer::DrawStereoOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *lef
 
 		OverrideShaderStereoStippleInterface *interface = (OverrideShaderStereoStippleInterface *)GPU_shader_get_interface(shader);
 
-		leftOffScreen->BindColorTexture(0);
-		rightOffScreen->BindColorTexture(1);
+		leftOffScreen->BindColorTexture(0, 0);
+		rightOffScreen->BindColorTexture(0, 1);
 
 		GPU_shader_uniform_int(shader, interface->leftEyeTexLoc, 0);
 		GPU_shader_uniform_int(shader, interface->rightEyeTexLoc, 1);
@@ -351,8 +351,8 @@ void RAS_Rasterizer::DrawStereoOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *lef
 
 		GPU_shader_unbind();
 
-		leftOffScreen->UnbindColorTexture();
-		rightOffScreen->UnbindColorTexture();
+		leftOffScreen->UnbindColorTexture(0);
+		rightOffScreen->UnbindColorTexture(0);
 	}
 	else if (stereoMode == RAS_STEREO_ANAGLYPH) {
 		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_STEREO_ANAGLYPH);
@@ -360,8 +360,8 @@ void RAS_Rasterizer::DrawStereoOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *lef
 
 		OverrideShaderStereoAnaglyph *interface = (OverrideShaderStereoAnaglyph *)GPU_shader_get_interface(shader);
 
-		leftOffScreen->BindColorTexture(0);
-		rightOffScreen->BindColorTexture(1);
+		leftOffScreen->BindColorTexture(0, 0);
+		rightOffScreen->BindColorTexture(0, 1);
 
 		GPU_shader_uniform_int(shader, interface->leftEyeTexLoc, 0);
 		GPU_shader_uniform_int(shader, interface->rightEyeTexLoc, 1);
@@ -370,8 +370,8 @@ void RAS_Rasterizer::DrawStereoOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *lef
 
 		GPU_shader_unbind();
 
-		leftOffScreen->UnbindColorTexture();
-		rightOffScreen->UnbindColorTexture();
+		leftOffScreen->UnbindColorTexture(0);
+		rightOffScreen->UnbindColorTexture(0);
 	}
 
 	SetDepthFunc(RAS_LEQUAL);

@@ -99,13 +99,13 @@ public:
 	/// NOTE: This function has the side effect to leave the destination off screen bound.
 	RAS_OffScreen *Blit(RAS_OffScreen *dstOffScreen, bool depth);
 
-	void BindColorTexture(unsigned short unit);
+	void BindColorTexture(unsigned short slot, unsigned short unit);
 	void BindDepthTexture(unsigned short unit);
-	void UnbindColorTexture();
+	void UnbindColorTexture(unsigned short slot);
 	void UnbindDepthTexture();
 
-	void MipmapTexture();
-	void UnmipmapTexture();
+	void MipmapTextures();
+	void UnmipmapTextures();
 
 	int GetColorBindCode() const;
 
@@ -113,6 +113,7 @@ public:
 	unsigned GetWidth() const;
 	unsigned GetHeight() const;
 	Type GetType() const;
+	unsigned short GetNumColorSlot() const;
 
 	GPUTexture *GetDepthTexture();
 

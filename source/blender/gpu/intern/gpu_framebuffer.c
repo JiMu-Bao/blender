@@ -585,8 +585,6 @@ void GPU_framebuffer_blit(GPUFrameBuffer *srcfb, GPUFrameBuffer *dstfb, int widt
 
 		glBlitFramebufferEXT(0, 0, width, height, 0, 0, width, height, mask, GL_NEAREST);
 	}
-
-	// TODO bind after
 }
 
 /* GPURenderBuffer */
