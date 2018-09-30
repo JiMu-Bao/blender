@@ -41,14 +41,13 @@
 #include "DNA_material_types.h"
 #include "DNA_scene_types.h"
 
-KX_BlenderMaterial::KX_BlenderMaterial(Material *mat, const std::string& name, int lightlayer)
-	:RAS_IPolyMaterial(name),
+KX_BlenderMaterial::KX_BlenderMaterial(Material *mat, const std::string& name, KX_Scene *scene)
+	:RAS_IMaterial(name),
 	m_material(mat),
 	m_shader(nullptr),
 	m_blenderShader(nullptr),
-	m_scene(nullptr),
-	m_userDefBlend(false),
-	m_lightLayer(lightlayer)
+	m_scene(scene),
+	m_userDefBlend(false)
 {
 	// Save material data to restore on exit
 	m_savedData.r = m_material->r;
@@ -168,7 +167,7 @@ void KX_BlenderMaterial::GetRGBAColor(unsigned char *rgba) const
 		*rgba++ = (unsigned char)(m_material->alpha * 255.0f);
 	}
 	else {
-		RAS_IPolyMaterial::GetRGBAColor(rgba);
+		RAS_IMaterial::GetRGBAColor(rgba);
 	}
 }
 
@@ -199,6 +198,11 @@ void KX_BlenderMaterial::ReloadMaterial()
 	}
 }
 
+void KX_BlenderMaterial::ReplaceScene(KX_Scene *scene)
+{
+	m_scene = scene;
+}
+
 void KX_BlenderMaterial::InitTextures()
 {
 	// for each unique material...
@@ -212,13 +216,12 @@ void KX_BlenderMaterial::InitTextures()
 	}
 }
 
-void KX_BlenderMaterial::InitScene(KX_Scene *scene)
+void KX_BlenderMaterial::InitShader()
 {
-	m_scene = scene;
+	BLI_assert(!m_blenderShader);
+	BLI_assert(m_scene);
 
-	if (!m_blenderShader) {
-		m_blenderShader = new BL_BlenderShader(m_scene, m_material, m_lightLayer, this);
-	}
+	m_blenderShader = new BL_BlenderShader(m_scene, m_material, this);
 
 	if (!m_blenderShader->Ok()) {
 		delete m_blenderShader;
@@ -232,6 +235,29 @@ void KX_BlenderMaterial::EndFrame(RAS_Rasterizer *rasty)
 	RAS_Texture::DesactiveTextures();
 }
 
+void KX_BlenderMaterial::UpdateTextures()
+{
+	/** We make sure that all gpu textures are the same in material textures here
+	 * than in gpu material. This is dones in a separated loop because the texture
+	 * regeneration can overide opengl bind settings of the previous texture.
+	 */
+	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
+		RAS_Texture *tex = m_textures[i];
+		if (tex && tex->Ok()) {
+			tex->CheckValidTexture();
+		}
+	}
+}
+
+void KX_BlenderMaterial::ApplyTextures()
+{
+	// for each enabled unit
+	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
+		if (m_textures[i] && m_textures[i]->Ok()) {
+			m_textures[i]->ActivateTexture(i);
+		}
+	}
+}
 
 void KX_BlenderMaterial::SetShaderData(RAS_Rasterizer *ras)
 {
@@ -239,22 +265,7 @@ void KX_BlenderMaterial::SetShaderData(RAS_Rasterizer *ras)
 
 	m_shader->ApplyShader();
 
-	/** We make sure that all gpu textures are the same in material textures here
-	 * than in gpu material. This is dones in a separated loop because the texture
-	 * regeneration can overide bind settings of the previous texture.
-	 */
-	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
-		if (m_textures[i] && m_textures[i]->Ok()) {
-			m_textures[i]->CheckValidTexture();
-		}
-	}
-
-	// for each enabled unit
-	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
-		if (m_textures[i] && m_textures[i]->Ok()) {
-			m_textures[i]->ActivateTexture(i);
-		}
-	}
+	ApplyTextures();
 
 	if (!m_userDefBlend) {
 		ras->SetAlphaBlend(m_alphablend);
@@ -284,6 +295,14 @@ void KX_BlenderMaterial::ActivateShaders(RAS_Rasterizer *rasty)
 void KX_BlenderMaterial::ActivateBlenderShaders(RAS_Rasterizer *rasty)
 {
 	SetBlenderShaderData(rasty);
+}
+
+void KX_BlenderMaterial::Prepare(RAS_Rasterizer *rasty)
+{
+	UpdateTextures();
+	if (m_blenderShader && m_blenderShader->Ok()) {
+		m_blenderShader->UpdateLights(rasty);
+	}
 }
 
 void KX_BlenderMaterial::Activate(RAS_Rasterizer *rasty)
@@ -323,16 +342,16 @@ bool KX_BlenderMaterial::UseInstancing() const
 	return m_material->shade_flag & MA_INSTANCING;
 }
 
-void KX_BlenderMaterial::ActivateInstancing(RAS_Rasterizer *rasty, void *matrixoffset, void *positionoffset, void *coloroffset, unsigned int stride)
+void KX_BlenderMaterial::ActivateInstancing(RAS_Rasterizer *rasty, RAS_InstancingBuffer *buffer)
 {
 	if (m_blenderShader) {
-		m_blenderShader->ActivateInstancing(matrixoffset, positionoffset, coloroffset, stride);
+		m_blenderShader->ActivateInstancing(buffer);
 	}
 }
 
 bool KX_BlenderMaterial::UsesLighting() const
 {
-	if (!RAS_IPolyMaterial::UsesLighting()) {
+	if (!RAS_IMaterial::UsesLighting()) {
 		return false;
 	}
 
@@ -421,6 +440,15 @@ const RAS_AttributeArray::AttribList KX_BlenderMaterial::GetAttribs(const RAS_Me
 	}
 
 	return {};
+}
+
+RAS_InstancingBuffer::Attrib KX_BlenderMaterial::GetInstancingAttribs() const
+{
+	if (m_blenderShader && m_blenderShader->Ok()) {
+		return m_blenderShader->GetInstancingAttribs();
+	}
+
+	return RAS_InstancingBuffer::DEFAULT_ATTRIBS;
 }
 
 std::string KX_BlenderMaterial::GetName()

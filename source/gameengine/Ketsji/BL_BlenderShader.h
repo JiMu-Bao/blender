@@ -35,6 +35,7 @@
 #include "RAS_AttributeArray.h"
 #include "RAS_Mesh.h"
 #include "RAS_Texture.h" // for MaxUnits
+#include "RAS_InstancingBuffer.h"
 
 #include "CM_Update.h"
 
@@ -45,7 +46,7 @@ struct Scene;
 struct GPUMaterial;
 class KX_Scene;
 class RAS_MeshSlot;
-class RAS_IPolyMaterial;
+class RAS_IMaterial;
 
 /**
  * BL_BlenderShader
@@ -56,13 +57,12 @@ class BL_BlenderShader
 private:
 	Scene *m_blenderScene;
 	Material *m_mat;
-	int m_lightLayer;
 	int m_alphaBlend;
 	GPUMaterial *m_gpuMat;
-	CM_UpdateServer<RAS_IPolyMaterial> *m_materialUpdateServer;
+	CM_UpdateServer<RAS_IMaterial> *m_materialUpdateServer;
 
 public:
-	BL_BlenderShader(KX_Scene *scene, Material *ma, int lightlayer, CM_UpdateServer<RAS_IPolyMaterial> *materialUpdateServer);
+	BL_BlenderShader(KX_Scene *scene, Material *ma, CM_UpdateServer<RAS_IMaterial> *materialUpdateServer);
 	virtual ~BL_BlenderShader();
 
 	bool Ok() const;
@@ -75,12 +75,14 @@ public:
 	 * \return The map of attributes layers.
 	 */
 	const RAS_AttributeArray::AttribList GetAttribs(const RAS_Mesh::LayersInfo& layersInfo) const;
+	RAS_InstancingBuffer::Attrib GetInstancingAttribs() const;
 
+	void UpdateLights(RAS_Rasterizer *rasty);
 	void Update(RAS_MeshSlot *ms, RAS_Rasterizer *rasty);
 
 	/// Return true if the shader uses a special vertex shader for geometry instancing.
 	bool UseInstancing() const;
-	void ActivateInstancing(void *matrixoffset, void *positionoffset, void *coloroffset, unsigned int stride);
+	void ActivateInstancing(RAS_InstancingBuffer *buffer);
 
 	void ReloadMaterial();
 	int GetAlphaBlend();

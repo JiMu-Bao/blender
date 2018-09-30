@@ -34,7 +34,7 @@
 #include "RAS_DisplayArrayStorage.h"
 #include "RAS_AttributeArrayStorage.h"
 #include "RAS_MaterialBucket.h"
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 #include "RAS_Mesh.h"
 #include "RAS_Deformer.h"
 #include "RAS_Rasterizer.h"
@@ -60,8 +60,7 @@ RAS_DisplayArrayBucket::RAS_DisplayArrayBucket(RAS_MaterialBucket *bucket, RAS_D
 	m_deformer(deformer),
 	m_arrayStorage(nullptr),
 	m_attribArray(m_displayArray),
-	m_instancingBuffer(nullptr),
-	m_materialUpdateClient(RAS_IPolyMaterial::ATTRIBUTES_MODIFIED, RAS_IPolyMaterial::ATTRIBUTES_MODIFIED),
+	m_materialUpdateClient(RAS_IMaterial::ATTRIBUTES_MODIFIED, RAS_IMaterial::ATTRIBUTES_MODIFIED),
 	m_arrayUpdateClient(RAS_DisplayArray::ANY_MODIFIED, RAS_DisplayArray::STORAGE_INVALID),
 	m_instancingNode(this, &m_nodeData, &RAS_DisplayArrayBucket::RunInstancingNode, nullptr),
 	m_batchingNode(this, &m_nodeData, &RAS_DisplayArrayBucket::RunBatchingNode, nullptr)
@@ -89,7 +88,7 @@ RAS_DisplayArrayBucket::RAS_DisplayArrayBucket(RAS_MaterialBucket *bucket, RAS_D
 	m_nodeData.m_attribStorage = nullptr;
 	m_nodeData.m_applyMatrix = (!m_deformer || !m_deformer->SkipVertexTransform());
 
-	RAS_IPolyMaterial *material = bucket->GetPolyMaterial();
+	RAS_IMaterial *material = bucket->GetMaterial();
 	material->AddUpdateClient(&m_materialUpdateClient);
 }
 
@@ -133,7 +132,7 @@ bool RAS_DisplayArrayBucket::UseBatching() const
 	return (m_displayArray && m_displayArray->GetType() == RAS_DisplayArray::BATCHING);
 }
 
-void RAS_DisplayArrayBucket::UpdateActiveMeshSlots(RAS_Rasterizer::DrawType drawingMode)
+void RAS_DisplayArrayBucket::UpdateActiveMeshSlots(RAS_Rasterizer::DrawType drawingMode, bool instancing)
 {
 	if (m_deformer) {
 		m_deformer->Apply(m_displayArray);
@@ -162,14 +161,24 @@ void RAS_DisplayArrayBucket::UpdateActiveMeshSlots(RAS_Rasterizer::DrawType draw
 		}
 
 		if (m_materialUpdateClient.GetInvalidAndClear()) {
-			RAS_IPolyMaterial *polymat = m_bucket->GetPolyMaterial();
+			RAS_IMaterial *mat = m_bucket->GetMaterial();
 			const RAS_Mesh::LayersInfo& layersInfo = m_mesh->GetLayersInfo();
-			const RAS_AttributeArray::AttribList attribList = polymat->GetAttribs(layersInfo);
+			const RAS_AttributeArray::AttribList attribList = mat->GetAttribs(layersInfo);
 
 			m_attribArray = RAS_AttributeArray(attribList, m_displayArray);
 		}
 
 		m_nodeData.m_attribStorage = m_attribArray.GetStorage(drawingMode);
+	}
+
+	if (instancing) {
+		// Create the instancing buffer only if needed.
+		if (!m_instancingBuffer[drawingMode]) {
+			RAS_IMaterial *mat = m_bucket->GetMaterial();
+			m_instancingBuffer[drawingMode].reset(new RAS_InstancingBuffer(mat->GetInstancingAttribs()));
+		}
+
+		m_nodeData.m_instancingBuffer = m_instancingBuffer[drawingMode].get();
 	}
 }
 
@@ -181,7 +190,7 @@ void RAS_DisplayArrayBucket::GenerateTree(RAS_MaterialDownwardNode& downwardRoot
 	}
 
 	// Update deformer and render settings.
-	UpdateActiveMeshSlots(drawingMode);
+	UpdateActiveMeshSlots(drawingMode, instancing);
 
 	if (instancing) {
 		downwardRoot.AddChild(&m_instancingNode);
@@ -242,15 +251,11 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 
 	const unsigned int nummeshslots = m_activeMeshSlots.size();
 
-	// Create the instancing buffer only if it needed.
-	if (!m_instancingBuffer) {
-		m_instancingBuffer.reset(new RAS_InstancingBuffer());
-	}
-
-	RAS_IPolyMaterial *material = materialData->m_material;
+	RAS_IMaterial *material = materialData->m_material;
+	RAS_InstancingBuffer *buffer = m_nodeData.m_instancingBuffer;
 
 	// Bind the instancing buffer to work on it.
-	m_instancingBuffer->Realloc(nummeshslots);
+	buffer->Realloc(nummeshslots);
 
 	/* If the material use the transparency we must sort all mesh slots depending on the distance.
 	 * This code share the code used in RAS_BucketManager to do the sort.
@@ -272,33 +277,25 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 		}
 
 		// Fill the buffer with the sorted mesh slots.
-		m_instancingBuffer->Update(rasty, materialData->m_drawingMode, meshSlots);
+		buffer->Update(rasty, materialData->m_drawingMode, meshSlots);
 	}
 	else {
 		// Fill the buffer with the original mesh slots.
-		m_instancingBuffer->Update(rasty, materialData->m_drawingMode, m_activeMeshSlots);
+		buffer->Update(rasty, materialData->m_drawingMode, m_activeMeshSlots);
 	}
 
 	RAS_AttributeArrayStorage *attribStorage = m_nodeData.m_attribStorage;
 	// Make sure to bind the VAO before instancing attributes to not clear them.
 	attribStorage->BindPrimitives();
 
-	m_instancingBuffer->Bind();
+	buffer->Bind();
 
 	// Bind all vertex attributs for the used material and the given buffer offset.
 	if (managerData->m_shaderOverride) {
-		rasty->ActivateOverrideShaderInstancing(
-			m_instancingBuffer->GetMatrixOffset(),
-			m_instancingBuffer->GetPositionOffset(),
-			m_instancingBuffer->GetStride());
+		rasty->ActivateOverrideShaderInstancing(buffer);
 	}
 	else {
-		material->ActivateInstancing(
-			rasty,
-			m_instancingBuffer->GetMatrixOffset(),
-			m_instancingBuffer->GetPositionOffset(),
-			m_instancingBuffer->GetColorOffset(),
-			m_instancingBuffer->GetStride());
+		material->ActivateInstancing(rasty, buffer);
 	}
 
 	/* Because the geometry instancing use setting for all instances we use the original alpha blend.
@@ -311,7 +308,7 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 	rasty->SetFrontFace(true);
 
 	// Unbind the buffer to avoid conflict with the render after.
-	m_instancingBuffer->Unbind();
+	buffer->Unbind();
 
 	m_arrayStorage->IndexPrimitivesInstancing(nummeshslots);
 
@@ -384,6 +381,11 @@ void RAS_DisplayArrayBucket::ChangeMaterialBucket(RAS_MaterialBucket *bucket)
 	m_bucket = bucket;
 
 	// Change of material update looking.
-	RAS_IPolyMaterial *material = bucket->GetPolyMaterial();
-	material->MoveUpdateClient(&m_materialUpdateClient, RAS_IPolyMaterial::ATTRIBUTES_MODIFIED);
+	RAS_IMaterial *material = bucket->GetMaterial();
+	material->MoveUpdateClient(&m_materialUpdateClient, RAS_IMaterial::ATTRIBUTES_MODIFIED);
+
+	// Instancing buffers are linked to material attributes, invalid them.
+	for (unsigned short i = 0; i < RAS_Rasterizer::RAS_DRAW_MAX; ++i) {
+		m_instancingBuffer[i].reset(nullptr);
+	}
 }

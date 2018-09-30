@@ -87,9 +87,9 @@ static struct GPUShadersGlobal {
 		GPUShader *smoke_coba;
 		GPUShader *black;
 		GPUShader *black_instancing;
-		GPUShader *draw_frame_buffer;
-		GPUShader *stereo_stipple;
-		GPUShader *stereo_anaglyph;
+		GPUShader *draw_frame_buffer[2];
+		GPUShader *stereo_stipple[2];
+		GPUShader *stereo_anaglyph[2];
 		GPUShader *frustum_line;
 		GPUShader *frustum_solid;
 		GPUShader *flat_color;
@@ -144,6 +144,29 @@ static void shader_print_errors(const char *task, const char *log, const char **
 
 static const char *gpu_shader_version(void)
 {
+	if (GLEW_ARB_compatibility) {
+		if (GLEW_VERSION_4_5) {
+			return "#version 450 compatibility\n";
+		}
+		else if (GLEW_VERSION_4_4) {
+			return "#version 440 compatibility\n";
+		}
+		else if (GLEW_VERSION_4_3) {
+			return "#version 430 compatibility\n";
+		}
+		else if (GLEW_VERSION_4_2) {
+			return "#version 420 compatibility\n";
+		}
+		else if (GLEW_VERSION_4_1) {
+			return "#version 410 compatibility\n";
+		}
+		else if (GLEW_VERSION_4_0) {
+			return "#version 400 compatibility\n";
+		}
+		else if (GLEW_VERSION_3_3) {
+			return "#version 330 compatibility\n";
+		}
+	}
 	if (GLEW_VERSION_3_2) {
 		if (GLEW_ARB_compatibility) {
 			return "#version 150 compatibility\n";
@@ -613,7 +636,6 @@ int GPU_shader_get_uniform_infos(GPUShader *shader, GPUUniformInfo **infos)
 	for (unsigned int i = 0; i < count; ++i) {
 		GPUUniformInfo *info = &((*infos)[i]);
 		glGetActiveUniform(shader->program, i, 255, NULL, (int *)&info->size, &info->type, info->name);
-		info->location = GPU_shader_get_uniform(shader, info->name);
 	}
 
 	return count;
@@ -741,20 +763,21 @@ void GPU_shader_bind_attribute(GPUShader *shader, int location, const char *name
 }
 
 // Used only for VSM shader with geometry instancing support.
-void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, void *positionoffset, unsigned int stride)
+void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, void *positionoffset)
 {
-	int posloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_POSITION_ATTRIB));
-	int matloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_MATRIX_ATTRIB));
+	const int posloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_POSITION_ATTRIB));
+	const int matloc = GPU_shader_get_attribute(shader, GPU_builtin_name(GPU_INSTANCING_MATRIX_ATTRIB));
 
 	// Matrix
 	if (matloc != -1) {
-		glEnableVertexAttribArrayARB(matloc);
-		glEnableVertexAttribArrayARB(matloc + 1);
-		glEnableVertexAttribArrayARB(matloc + 2);
+		glEnableVertexAttribArray(matloc);
+		glEnableVertexAttribArray(matloc + 1);
+		glEnableVertexAttribArray(matloc + 2);
 
-		glVertexAttribPointerARB(matloc, 3, GL_FLOAT, GL_FALSE, stride, matrixoffset);
-		glVertexAttribPointerARB(matloc + 1, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 3 * sizeof(float));
-		glVertexAttribPointerARB(matloc + 2, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 6 * sizeof(float));
+		const unsigned short stride = sizeof(float) * 9;
+		glVertexAttribPointer(matloc, 3, GL_FLOAT, GL_FALSE, stride, matrixoffset);
+		glVertexAttribPointer(matloc + 1, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 3 * sizeof(float));
+		glVertexAttribPointer(matloc + 2, 3, GL_FLOAT, GL_FALSE, stride, ((char *)matrixoffset) + 6 * sizeof(float));
 
 		glVertexAttribDivisorARB(matloc, 1);
 		glVertexAttribDivisorARB(matloc + 1, 1);
@@ -763,8 +786,8 @@ void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, vo
 
 	// Position
 	if (posloc != -1) {
-		glEnableVertexAttribArrayARB(posloc);
-		glVertexAttribPointerARB(posloc, 3, GL_FLOAT, GL_FALSE, stride, positionoffset);
+		glEnableVertexAttribArray(posloc);
+		glVertexAttribPointer(posloc, 3, GL_FLOAT, GL_FALSE, 0, positionoffset);
 		glVertexAttribDivisorARB(posloc, 1);
 	}
 }
@@ -832,25 +855,46 @@ GPUShader *GPU_shader_get_builtin_shader(GPUBuiltinShader shader)
 			retval = GG.shaders.black_instancing;
 			break;
 		case GPU_SHADER_DRAW_FRAME_BUFFER:
-			if (!GG.shaders.draw_frame_buffer)
-				GG.shaders.draw_frame_buffer = GPU_shader_create(
+			if (!GG.shaders.draw_frame_buffer[0])
+				GG.shaders.draw_frame_buffer[0] = GPU_shader_create(
 					datatoc_gpu_shader_frame_buffer_vert_glsl, datatoc_gpu_shader_frame_buffer_frag_glsl,
 					NULL, NULL, NULL, 0, 0, 0);
-			retval = GG.shaders.draw_frame_buffer;
+			retval = GG.shaders.draw_frame_buffer[0];
+			break;
+		case GPU_SHADER_DRAW_FRAME_BUFFER_SRGB:
+			if (!GG.shaders.draw_frame_buffer[1])
+				GG.shaders.draw_frame_buffer[1] = GPU_shader_create(
+					datatoc_gpu_shader_frame_buffer_vert_glsl, datatoc_gpu_shader_frame_buffer_frag_glsl,
+					NULL, NULL, "#define COLOR_MANAGEMENT;\n", 0, 0, 0);
+			retval = GG.shaders.draw_frame_buffer[1];
 			break;
 		case GPU_SHADER_STEREO_STIPPLE:
-			if (!GG.shaders.stereo_stipple)
-				GG.shaders.stereo_stipple = GPU_shader_create(
+			if (!GG.shaders.stereo_stipple[0])
+				GG.shaders.stereo_stipple[0] = GPU_shader_create(
 					datatoc_gpu_shader_frame_buffer_vert_glsl, datatoc_gpu_shader_frame_buffer_frag_glsl,
 					NULL, NULL, "#define STIPPLE;\n", 0, 0, 0);
-			retval = GG.shaders.stereo_stipple;
+			retval = GG.shaders.stereo_stipple[0];
+			break;
+		case GPU_SHADER_STEREO_STIPPLE_SRGB:
+			if (!GG.shaders.stereo_stipple[1])
+				GG.shaders.stereo_stipple[1] = GPU_shader_create(
+					datatoc_gpu_shader_frame_buffer_vert_glsl, datatoc_gpu_shader_frame_buffer_frag_glsl,
+					NULL, NULL, "#define COLOR_MANAGEMENT;\n #define STIPPLE;\n", 0, 0, 0);
+			retval = GG.shaders.stereo_stipple[1];
 			break;
 		case GPU_SHADER_STEREO_ANAGLYPH:
-			if (!GG.shaders.stereo_anaglyph)
-				GG.shaders.stereo_anaglyph = GPU_shader_create(
+			if (!GG.shaders.stereo_anaglyph[0])
+				GG.shaders.stereo_anaglyph[0] = GPU_shader_create(
 					datatoc_gpu_shader_frame_buffer_vert_glsl, datatoc_gpu_shader_frame_buffer_frag_glsl,
 					NULL, NULL, "#define ANAGLYPH;\n", 0, 0, 0);
-			retval = GG.shaders.stereo_anaglyph;
+			retval = GG.shaders.stereo_anaglyph[0];
+			break;
+		case GPU_SHADER_STEREO_ANAGLYPH_SRGB:
+			if (!GG.shaders.stereo_anaglyph[1])
+				GG.shaders.stereo_anaglyph[1] = GPU_shader_create(
+					datatoc_gpu_shader_frame_buffer_vert_glsl, datatoc_gpu_shader_frame_buffer_frag_glsl,
+					NULL, NULL, "#define COLOR_MANAGEMENT;\n #define ANAGLYPH;\n", 0, 0, 0);
+			retval = GG.shaders.stereo_anaglyph[1];
 			break;
 		case GPU_SHADER_FRUSTUM_LINE:
 			if (!GG.shaders.frustum_line)
@@ -1006,19 +1050,21 @@ void GPU_shader_free_builtin_shaders(void)
 		GG.shaders.black_instancing = NULL;
 	}
 
-	if (GG.shaders.draw_frame_buffer) {
-		GPU_shader_free(GG.shaders.draw_frame_buffer);
-		GG.shaders.draw_frame_buffer = NULL;
-	}
+	for (unsigned short i = 0; i < 2; ++i) {
+		if (GG.shaders.draw_frame_buffer[i]) {
+			GPU_shader_free(GG.shaders.draw_frame_buffer[i]);
+			GG.shaders.draw_frame_buffer[i] = NULL;
+		}
 
-	if (GG.shaders.stereo_stipple) {
-		GPU_shader_free(GG.shaders.stereo_stipple);
-		GG.shaders.stereo_stipple = NULL;
-	}
+		if (GG.shaders.stereo_stipple[i]) {
+			GPU_shader_free(GG.shaders.stereo_stipple[i]);
+			GG.shaders.stereo_stipple[i] = NULL;
+		}
 
-	if (GG.shaders.stereo_anaglyph) {
-		GPU_shader_free(GG.shaders.stereo_anaglyph);
-		GG.shaders.stereo_anaglyph = NULL;
+		if (GG.shaders.stereo_anaglyph[i]) {
+			GPU_shader_free(GG.shaders.stereo_anaglyph[i]);
+			GG.shaders.stereo_anaglyph[i] = NULL;
+		}
 	}
 
 	if (GG.shaders.frustum_line) {
@@ -1048,5 +1094,3 @@ void GPU_shader_free_builtin_shaders(void)
 		}
 	}
 }
-
-

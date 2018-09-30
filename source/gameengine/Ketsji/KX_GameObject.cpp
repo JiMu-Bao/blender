@@ -552,7 +552,7 @@ static void setGraphicController_recursive(SG_Node *node)
 void KX_GameObject::ActivateGraphicController(bool recurse)
 {
 	if (m_graphicController) {
-		m_graphicController->Activate(m_bVisible);
+		m_graphicController->Activate(m_bVisible || m_bOccluder);
 	}
 	if (recurse) {
 		setGraphicController_recursive(m_sgNode.get());
@@ -698,8 +698,9 @@ void KX_GameObject::AddMeshUser()
 	for (size_t i = 0; i < m_meshes.size(); ++i) {
 		RAS_Deformer *deformer = BL_ConvertDeformer(this, m_meshes[i]);
 		m_meshUser = m_meshes[i]->AddMeshUser(&m_clientInfo, deformer);
-		// Make sure the mesh user get the matrix even if the object doesn't move.
-		NodeGetWorldTransform().PackFromAffineTransform(m_meshUser->GetMatrix());
+
+		m_meshUser->SetMatrix(mt::mat4::FromAffineTransform(NodeGetWorldTransform()));
+		m_meshUser->SetFrontFace(!IsNegativeScaling());
 	}
 }
 
@@ -707,12 +708,13 @@ void KX_GameObject::UpdateBuckets()
 {
 	// Update datas and add mesh slot to be rendered only if the object is not culled.
 	if (m_sgNode->IsDirty(SG_Node::DIRTY_RENDER)) {
-		NodeGetWorldTransform().PackFromAffineTransform(m_meshUser->GetMatrix());
+		m_meshUser->SetMatrix(mt::mat4::FromAffineTransform(NodeGetWorldTransform()));
+		m_meshUser->SetFrontFace(!IsNegativeScaling());
 		m_sgNode->ClearDirty(SG_Node::DIRTY_RENDER);
 	}
 
+	m_meshUser->SetLayer(m_layer);
 	m_meshUser->SetColor(m_objectColor);
-	m_meshUser->SetFrontFace(!IsNegativeScaling());
 	m_meshUser->ActivateMeshSlots();
 }
 
@@ -897,7 +899,7 @@ void KX_GameObject::SetVisible(bool v,
 {
 	m_bVisible = v;
 	if (m_graphicController) {
-		m_graphicController->Activate(m_bVisible);
+		m_graphicController->Activate(m_bVisible || m_bOccluder);
 	}
 	if (recursive) {
 		setVisible_recursive(m_sgNode.get(), v);
@@ -924,6 +926,9 @@ void KX_GameObject::SetOccluder(bool v,
                                 bool recursive)
 {
 	m_bOccluder = v;
+	if (m_graphicController) {
+		m_graphicController->Activate(m_bVisible || m_bOccluder);
+	}
 	if (recursive) {
 		setOccluder_recursive(m_sgNode.get(), v);
 	}
@@ -3884,20 +3889,13 @@ EXP_PYMETHODDEF_DOC_O(KX_GameObject, getVectTo,
 	return returnValue;
 }
 
-struct KX_GameObject::RayCastData {
-	RayCastData(std::string prop, bool xray, unsigned int mask)
-		:m_prop(prop),
-		m_xray(xray),
-		m_mask(mask),
-		m_hitObject(nullptr)
-	{
-	}
-
-	std::string m_prop;
-	bool m_xray;
-	unsigned int m_mask;
-	KX_GameObject *m_hitObject;
-};
+KX_GameObject::RayCastData::RayCastData(const std::string& prop, bool xray, unsigned int mask)
+	:m_prop(prop),
+	m_xray(xray),
+	m_mask(mask),
+	m_hitObject(nullptr)
+{
+}
 
 static bool CheckRayCastObject(KX_GameObject *obj, KX_GameObject::RayCastData *rayData)
 {
@@ -4102,14 +4100,14 @@ EXP_PYMETHODDEF_DOC(KX_GameObject, rayCast,
 
 	if (dist != 0.0f) {
 		mt::vec3 toDir = toPoint - fromPoint;
-		if (mt::FuzzyZero(toDir.LengthSquared())) {
+		if (mt::FuzzyZero(toDir)) {
 			//return Py_BuildValue("OOO", Py_None, Py_None, Py_None);
 			return none_tuple_3();
 		}
 		toDir.Normalize();
 		toPoint = fromPoint + (dist) * toDir;
 	}
-	else if (mt::FuzzyZero((toPoint - fromPoint).LengthSquared())) {
+	else if (mt::FuzzyZero(toPoint - fromPoint)) {
 		//return Py_BuildValue("OOO", Py_None, Py_None, Py_None);
 		return none_tuple_3();
 	}

@@ -33,7 +33,8 @@
 #include "RAS_Deformer.h"
 
 RAS_MeshUser::RAS_MeshUser(void *clientobj, RAS_BoundingBox *boundingBox, RAS_Deformer *deformer)
-	:m_frontFace(true),
+	:m_layer((1 << 20) - 1),
+	m_frontFace(true),
 	m_color(mt::zero4),
 	m_boundingBox(boundingBox),
 	m_clientObject(clientobj),
@@ -61,6 +62,11 @@ void RAS_MeshUser::NewMeshSlot(RAS_DisplayArrayBucket *arrayBucket)
 	m_meshSlots.emplace_back(this, arrayBucket);
 }
 
+unsigned int RAS_MeshUser::GetLayer() const
+{
+	return m_layer;
+}
+
 bool RAS_MeshUser::GetFrontFace() const
 {
 	return m_frontFace;
@@ -71,7 +77,7 @@ const mt::vec4& RAS_MeshUser::GetColor() const
 	return m_color;
 }
 
-float *RAS_MeshUser::GetMatrix()
+const mt::mat4& RAS_MeshUser::GetMatrix() const
 {
 	return m_matrix;
 }
@@ -101,6 +107,11 @@ RAS_Deformer *RAS_MeshUser::GetDeformer()
 	return m_deformer.get();
 }
 
+void RAS_MeshUser::SetLayer(unsigned int layer)
+{
+	m_layer = layer;
+}
+
 void RAS_MeshUser::SetFrontFace(bool frontFace)
 {
 	m_frontFace = frontFace;
@@ -109,6 +120,11 @@ void RAS_MeshUser::SetFrontFace(bool frontFace)
 void RAS_MeshUser::SetColor(const mt::vec4& color)
 {
 	m_color = color;
+}
+
+void RAS_MeshUser::SetMatrix(const mt::mat4& matrix)
+{
+	m_matrix = matrix;
 }
 
 void RAS_MeshUser::SetBatchGroup(RAS_BatchGroup *batchGroup)

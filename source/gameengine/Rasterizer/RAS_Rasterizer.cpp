@@ -31,8 +31,10 @@
 
 #include "RAS_Rasterizer.h"
 #include "RAS_OpenGLRasterizer.h"
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_OpenGLDebugDraw.h"
+#include "RAS_IMaterial.h"
 #include "RAS_DisplayArrayBucket.h"
+#include "RAS_InstancingBuffer.h"
 
 #include "RAS_ICanvas.h"
 #include "RAS_OffScreen.h"
@@ -53,6 +55,7 @@
 #include "BLI_math_vector.h"
 
 extern "C" {
+#  include "BKE_global.h"
 #  include "BLF_api.h"
 }
 
@@ -192,6 +195,14 @@ RAS_Rasterizer::OffScreenType RAS_Rasterizer::NextRenderOffScreen(RAS_Rasterizer
 	}
 }
 
+// Each shader used to draw the offscreen to screen by color management.
+GPUBuiltinShader offScreenToScreenShaderTable[RAS_Rasterizer::RAS_SHADER_TO_SCREEN_MAX][RAS_Rasterizer::RAS_COLOR_MANAGEMENT_MAX] = {
+	// Linear, sRGB
+	{GPU_SHADER_DRAW_FRAME_BUFFER, GPU_SHADER_DRAW_FRAME_BUFFER_SRGB}, // Normal
+	{GPU_SHADER_STEREO_STIPPLE, GPU_SHADER_STEREO_STIPPLE_SRGB}, // Stereo stipple
+	{GPU_SHADER_STEREO_ANAGLYPH, GPU_SHADER_STEREO_ANAGLYPH_SRGB} // Stereo anaglyph
+};
+
 RAS_Rasterizer::RAS_Rasterizer()
 	:m_time(0.0f),
 	m_ambient(mt::zero3),
@@ -206,6 +217,7 @@ RAS_Rasterizer::RAS_Rasterizer()
 	m_focallength(0.0f),
 	m_setfocallength(false),
 	m_noOfScanlines(32),
+	m_colorManagement(RAS_COLOR_MANAGEMENT_LINEAR),
 	m_motionblur(0),
 	m_motionblurvalue(-1.0f),
 	m_clientobject(nullptr),
@@ -216,12 +228,12 @@ RAS_Rasterizer::RAS_Rasterizer()
 	m_overrideShader(RAS_OVERRIDE_SHADER_NONE)
 {
 	m_impl.reset(new RAS_OpenGLRasterizer(this));
+	m_debugDrawImpl.reset(new RAS_OpenGLDebugDraw());
 
 	m_numgllights = m_impl->GetNumLights();
 
-	InitOverrideShadersInterface();
-
-	m_state.frontFace = true;
+	m_state.frontFace = -1;
+	m_state.cullFace = -1;
 	m_state.polyOffset[0] = -1.0f;
 	m_state.polyOffset[1] = -1.0f;
 }
@@ -279,11 +291,13 @@ void RAS_Rasterizer::Init()
 	SetColorMask(true, true, true, true);
 
 	m_impl->Init();
+
+	InitOverrideShadersInterface();
 }
 
 void RAS_Rasterizer::Exit()
 {
-	Enable(RAS_CULL_FACE);
+	SetCullFace(true);
 	Enable(RAS_DEPTH_TEST);
 
 	SetClearDepth(1.0f);
@@ -313,7 +327,7 @@ void RAS_Rasterizer::BeginFrame(double time)
 	m_state.polyOffset[0] = -1.0f;
 	m_state.polyOffset[1] = -1.0f;
 
-	Enable(RAS_CULL_FACE);
+	SetCullFace(true);
 	Enable(RAS_DEPTH_TEST);
 
 	Disable(RAS_BLEND);
@@ -423,9 +437,6 @@ void RAS_Rasterizer::DrawOffScreen(RAS_OffScreen *srcOffScreen, RAS_OffScreen *d
 		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_DRAW_FRAME_BUFFER);
 		GPU_shader_bind(shader);
 
-		OverrideShaderDrawFrameBufferInterface *interface = (OverrideShaderDrawFrameBufferInterface *)GPU_shader_get_interface(shader);
-		GPU_shader_uniform_int(shader, interface->colorTexLoc, 0);
-
 		DrawOverlayPlane();
 
 		GPU_shader_unbind();
@@ -434,7 +445,7 @@ void RAS_Rasterizer::DrawOffScreen(RAS_OffScreen *srcOffScreen, RAS_OffScreen *d
 	}
 }
 
-void RAS_Rasterizer::DrawOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *offScreen)
+void RAS_Rasterizer::DrawOffScreenToScreen(RAS_ICanvas *canvas, RAS_OffScreen *offScreen)
 {
 	if (offScreen->GetSamples() > 0) {
 		offScreen = offScreen->Blit(GetOffScreen(RAS_OFFSCREEN_EYE_LEFT1), true, false);
@@ -444,18 +455,28 @@ void RAS_Rasterizer::DrawOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *offScreen
 	SetViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 	SetScissor(viewport[0], viewport[1], viewport[2], viewport[3]);
 
-	Disable(RAS_CULL_FACE);
+	SetFrontFace(true);
 	SetDepthFunc(RAS_ALWAYS);
 
 	RAS_OffScreen::RestoreScreen();
-	DrawOffScreen(offScreen, nullptr);
+
+	offScreen->BindColorTexture(0);
+
+	GPUShader *shader =
+		GPU_shader_get_builtin_shader(offScreenToScreenShaderTable[RAS_SHADER_TO_SCREEN_NORMAL][m_colorManagement]);
+	GPU_shader_bind(shader);
+
+	DrawOverlayPlane();
+
+	GPU_shader_unbind();
+
+	offScreen->UnbindColorTexture();
 
 	SetDepthFunc(RAS_LEQUAL);
-	Enable(RAS_CULL_FACE);
 }
 
-void RAS_Rasterizer::DrawStereoOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *leftOffScreen, RAS_OffScreen *rightOffScreen,
-                                         StereoMode stereoMode)
+void RAS_Rasterizer::DrawStereoOffScreenToScreen(RAS_ICanvas *canvas, RAS_OffScreen *leftOffScreen,
+		RAS_OffScreen *rightOffScreen, StereoMode stereoMode)
 {
 	if (leftOffScreen->GetSamples() > 0) {
 		// Then leftOffScreen == RAS_OFFSCREEN_EYE_LEFT0.
@@ -471,53 +492,36 @@ void RAS_Rasterizer::DrawStereoOffScreen(RAS_ICanvas *canvas, RAS_OffScreen *lef
 	SetViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 	SetScissor(viewport[0], viewport[1], viewport[2], viewport[3]);
 
-	Disable(RAS_CULL_FACE);
+	SetFrontFace(true);
 	SetDepthFunc(RAS_ALWAYS);
 
 	RAS_OffScreen::RestoreScreen();
 
 	if (stereoMode == RAS_STEREO_VINTERLACE || stereoMode == RAS_STEREO_INTERLACED) {
-		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_STEREO_STIPPLE);
+		GPUShader *shader = 
+			GPU_shader_get_builtin_shader(offScreenToScreenShaderTable[RAS_SHADER_TO_SCREEN_STEREO_STIPPLE][m_colorManagement]);
 		GPU_shader_bind(shader);
 
 		OverrideShaderStereoStippleInterface *interface = (OverrideShaderStereoStippleInterface *)GPU_shader_get_interface(shader);
-
-		leftOffScreen->BindColorTexture(0);
-		rightOffScreen->BindColorTexture(1);
-
-		GPU_shader_uniform_int(shader, interface->leftEyeTexLoc, 0);
-		GPU_shader_uniform_int(shader, interface->rightEyeTexLoc, 1);
 		GPU_shader_uniform_int(shader, interface->stippleIdLoc, (stereoMode == RAS_STEREO_INTERLACED) ? 1 : 0);
-
-		DrawOverlayPlane();
-
-		GPU_shader_unbind();
-
-		leftOffScreen->UnbindColorTexture();
-		rightOffScreen->UnbindColorTexture();
 	}
 	else if (stereoMode == RAS_STEREO_ANAGLYPH) {
-		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_STEREO_ANAGLYPH);
+		GPUShader *shader = 
+			GPU_shader_get_builtin_shader(offScreenToScreenShaderTable[RAS_SHADER_TO_SCREEN_STEREO_ANAGLYPH][m_colorManagement]);
 		GPU_shader_bind(shader);
-
-		OverrideShaderStereoAnaglyph *interface = (OverrideShaderStereoAnaglyph *)GPU_shader_get_interface(shader);
-
-		leftOffScreen->BindColorTexture(0);
-		rightOffScreen->BindColorTexture(1);
-
-		GPU_shader_uniform_int(shader, interface->leftEyeTexLoc, 0);
-		GPU_shader_uniform_int(shader, interface->rightEyeTexLoc, 1);
-
-		DrawOverlayPlane();
-
-		GPU_shader_unbind();
-
-		leftOffScreen->UnbindColorTexture();
-		rightOffScreen->UnbindColorTexture();
 	}
 
+	leftOffScreen->BindColorTexture(0);
+	rightOffScreen->BindColorTexture(1);
+
+	DrawOverlayPlane();
+
+	leftOffScreen->UnbindColorTexture();
+	rightOffScreen->UnbindColorTexture();
+
+	GPU_shader_unbind();
+
 	SetDepthFunc(RAS_LEQUAL);
-	Enable(RAS_CULL_FACE);
 }
 
 RAS_Rect RAS_Rasterizer::GetRenderArea(RAS_ICanvas *canvas, StereoMode stereoMode, StereoEye eye)
@@ -680,7 +684,7 @@ void RAS_Rasterizer::IndexPrimitivesText(RAS_MeshSlot *ms)
 	RAS_TextUser *textUser = (RAS_TextUser *)ms->m_meshUser;
 
 	float mat[16];
-	memcpy(mat, textUser->GetMatrix(), sizeof(float) * 16);
+	textUser->GetMatrix().Pack(mat);
 
 	const mt::vec3& spacing = textUser->GetSpacing();
 	const mt::vec3& offset = textUser->GetOffset();
@@ -863,6 +867,11 @@ bool RAS_Rasterizer::GetCameraOrtho()
 
 void RAS_Rasterizer::SetCullFace(bool enable)
 {
+	if (enable == m_state.cullFace) {
+		return;
+	}
+	m_state.cullFace = enable;
+
 	if (enable) {
 		Enable(RAS_CULL_FACE);
 	}
@@ -982,9 +991,14 @@ void RAS_Rasterizer::SetInvertFrontFace(bool invert)
 	m_invertFrontFace = invert;
 }
 
+void RAS_Rasterizer::SetColorManagment(ColorManagement colorManagement)
+{
+	m_colorManagement = colorManagement;
+}
+
 void RAS_Rasterizer::SetAnisotropicFiltering(short level)
 {
-	GPU_set_anisotropic((float)level);
+	GPU_set_anisotropic(G.main, (float)level);
 }
 
 short RAS_Rasterizer::GetAnisotropicFiltering()
@@ -998,19 +1012,19 @@ void RAS_Rasterizer::SetMipmapping(MipmapOption val)
 		case RAS_Rasterizer::RAS_MIPMAP_LINEAR:
 		{
 			GPU_set_linear_mipmap(1);
-			GPU_set_mipmap(1);
+			GPU_set_mipmap(G.main, 1);
 			break;
 		}
 		case RAS_Rasterizer::RAS_MIPMAP_NEAREST:
 		{
 			GPU_set_linear_mipmap(0);
-			GPU_set_mipmap(1);
+			GPU_set_mipmap(G.main, 1);
 			break;
 		}
 		default:
 		{
 			GPU_set_linear_mipmap(0);
-			GPU_set_mipmap(0);
+			GPU_set_mipmap(G.main, 0);
 		}
 	}
 }
@@ -1035,41 +1049,60 @@ void RAS_Rasterizer::InitOverrideShadersInterface()
 	// Find uniform location for FBO shaders.
 
 	// Draw frame buffer shader.
-	{
-		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_DRAW_FRAME_BUFFER);
-		if (!GPU_shader_get_interface(shader)) {
-			OverrideShaderDrawFrameBufferInterface *interface = (OverrideShaderDrawFrameBufferInterface *)MEM_mallocN(sizeof(OverrideShaderDrawFrameBufferInterface), "OverrideShaderDrawFrameBufferInterface");
+	for (unsigned short i = 0; i < RAS_COLOR_MANAGEMENT_MAX; ++i) {
+		{
+			GPUShader *shader = 
+				GPU_shader_get_builtin_shader(offScreenToScreenShaderTable[RAS_SHADER_TO_SCREEN_NORMAL][i]);
+			if (!GPU_shader_get_interface(shader)) {
+				OverrideShaderDrawFrameBufferInterface *interface = (OverrideShaderDrawFrameBufferInterface *)MEM_mallocN(sizeof(OverrideShaderDrawFrameBufferInterface), "OverrideShaderDrawFrameBufferInterface");
 
-			interface->colorTexLoc = GPU_shader_get_uniform(shader, "colortex");
+				interface->colorTexLoc = GPU_shader_get_uniform(shader, "colortex");
 
-			GPU_shader_set_interface(shader, interface);
+				GPU_shader_bind(shader);
+				GPU_shader_uniform_int(shader, interface->colorTexLoc, 0);
+				GPU_shader_unbind();
+
+				GPU_shader_set_interface(shader, interface);
+			}
 		}
-	}
 
-	// Stipple stereo shader.
-	{
-		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_STEREO_STIPPLE);
-		if (!GPU_shader_get_interface(shader)) {
-			OverrideShaderStereoStippleInterface *interface = (OverrideShaderStereoStippleInterface *)MEM_mallocN(sizeof(OverrideShaderStereoStippleInterface), "OverrideShaderStereoStippleInterface");
+		// Stipple stereo shader.
+		{
+			GPUShader *shader = 
+				GPU_shader_get_builtin_shader(offScreenToScreenShaderTable[RAS_SHADER_TO_SCREEN_STEREO_STIPPLE][i]);
+			if (!GPU_shader_get_interface(shader)) {
+				OverrideShaderStereoStippleInterface *interface = (OverrideShaderStereoStippleInterface *)MEM_mallocN(sizeof(OverrideShaderStereoStippleInterface), "OverrideShaderStereoStippleInterface");
 
-			interface->leftEyeTexLoc = GPU_shader_get_uniform(shader, "lefteyetex");
-			interface->rightEyeTexLoc = GPU_shader_get_uniform(shader, "righteyetex");
-			interface->stippleIdLoc = GPU_shader_get_uniform(shader, "stippleid");
+				interface->leftEyeTexLoc = GPU_shader_get_uniform(shader, "lefteyetex");
+				interface->rightEyeTexLoc = GPU_shader_get_uniform(shader, "righteyetex");
+				interface->stippleIdLoc = GPU_shader_get_uniform(shader, "stippleid");
 
-			GPU_shader_set_interface(shader, interface);
+				GPU_shader_bind(shader);
+				GPU_shader_uniform_int(shader, interface->leftEyeTexLoc, 0);
+				GPU_shader_uniform_int(shader, interface->rightEyeTexLoc, 1);
+				GPU_shader_unbind();
+
+				GPU_shader_set_interface(shader, interface);
+			}
 		}
-	}
 
-	// Anaglyph stereo shader.
-	{
-		GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_STEREO_ANAGLYPH);
-		if (!GPU_shader_get_interface(shader)) {
-			OverrideShaderStereoAnaglyph *interface = (OverrideShaderStereoAnaglyph *)MEM_mallocN(sizeof(OverrideShaderStereoAnaglyph), "OverrideShaderStereoAnaglyph");
+		// Anaglyph stereo shader.
+		{
+			GPUShader *shader = 
+				GPU_shader_get_builtin_shader(offScreenToScreenShaderTable[RAS_SHADER_TO_SCREEN_STEREO_ANAGLYPH][i]);
+			if (!GPU_shader_get_interface(shader)) {
+				OverrideShaderStereoAnaglyph *interface = (OverrideShaderStereoAnaglyph *)MEM_mallocN(sizeof(OverrideShaderStereoAnaglyph), "OverrideShaderStereoAnaglyph");
 
-			interface->leftEyeTexLoc = GPU_shader_get_uniform(shader, "lefteyetex");
-			interface->rightEyeTexLoc = GPU_shader_get_uniform(shader, "righteyetex");
+				interface->leftEyeTexLoc = GPU_shader_get_uniform(shader, "lefteyetex");
+				interface->rightEyeTexLoc = GPU_shader_get_uniform(shader, "righteyetex");
 
-			GPU_shader_set_interface(shader, interface);
+				GPU_shader_bind(shader);
+				GPU_shader_uniform_int(shader, interface->leftEyeTexLoc, 0);
+				GPU_shader_uniform_int(shader, interface->rightEyeTexLoc, 1);
+				GPU_shader_unbind();
+
+				GPU_shader_set_interface(shader, interface);
+			}
 		}
 	}
 }
@@ -1128,11 +1161,11 @@ RAS_Rasterizer::OverrideShaderType RAS_Rasterizer::GetOverrideShader()
 	return m_overrideShader;
 }
 
-void RAS_Rasterizer::ActivateOverrideShaderInstancing(void *matrixoffset, void *positionoffset, unsigned int stride)
+void RAS_Rasterizer::ActivateOverrideShaderInstancing(RAS_InstancingBuffer *buffer)
 {
 	GPUShader *shader = GetOverrideGPUShader(m_overrideShader);
 	if (shader) {
-		GPU_shader_bind_instancing_attrib(shader, matrixoffset, positionoffset, stride);
+		GPU_shader_bind_instancing_attrib(shader, (void *)buffer->GetMatrixOffset(), (void *)buffer->GetPositionOffset());
 	}
 }
 
@@ -1257,12 +1290,12 @@ bool RAS_Rasterizer::RayHit(struct KX_ClientObjectInfo *client, KX_RayCast *resu
 			return false;
 		}
 
-		float *origmat = raytransform->origmat;
+		const mt::mat4& origmat = raytransform->origmat;
 		float *mat = raytransform->mat;
 		const mt::vec3& scale = raytransform->scale;
 		const mt::vec3& point = result->m_hitPoint;
 		mt::vec3 resultnormal(result->m_hitNormal);
-		mt::vec3 left(&origmat[0]);
+		mt::vec3 left = origmat.GetColumn(0).xyz();
 		mt::vec3 dir = -(mt::cross(left, resultnormal)).SafeNormalized(mt::axisX3);
 		left = (mt::cross(dir, resultnormal)).SafeNormalized(mt::axisX3);
 		// for the up vector, we take the 'resultnormal' returned by the physics
@@ -1293,13 +1326,13 @@ bool RAS_Rasterizer::NeedRayCast(KX_ClientObjectInfo *UNUSED(info), void *UNUSED
 	return true;
 }
 
-void RAS_Rasterizer::GetTransform(float *origmat, int objectdrawmode, float mat[16])
+void RAS_Rasterizer::GetTransform(const mt::mat4& origmat, int objectdrawmode, float mat[16])
 {
-	if (objectdrawmode == RAS_IPolyMaterial::RAS_NORMAL) {
+	if (objectdrawmode == RAS_IMaterial::RAS_NORMAL) {
 		// 'normal' object
-		memcpy(mat, origmat, sizeof(float) * 16);
+		origmat.Pack(mat);
 	}
-	else if (ELEM(objectdrawmode, RAS_IPolyMaterial::RAS_HALO, RAS_IPolyMaterial::RAS_BILLBOARD)) {
+	else if (ELEM(objectdrawmode, RAS_IMaterial::RAS_HALO, RAS_IMaterial::RAS_BILLBOARD)) {
 		// rotate the billboard/halo
 		//page 360/361 3D Game Engine Design, David Eberly for a discussion
 		// on screen aligned and axis aligned billboards
@@ -1323,7 +1356,7 @@ void RAS_Rasterizer::GetTransform(float *origmat, int objectdrawmode, float mat[
 		// get scaling of halo object
 		const mt::vec3& scale = mt::vec3(len_v3(&origmat[0]), len_v3(&origmat[4]), len_v3(&origmat[8]));
 
-		if (objectdrawmode & RAS_IPolyMaterial::RAS_HALO) {
+		if (objectdrawmode & RAS_IMaterial::RAS_HALO) {
 			up = (up - mt::dot(up, left) * left).SafeNormalized(mt::axisX3);
 		}
 		else {
@@ -1376,9 +1409,14 @@ void RAS_Rasterizer::GetTransform(float *origmat, int objectdrawmode, float mat[
 		KX_RayCast::Callback<RAS_Rasterizer, RayCastTranform> callback(this, physics_controller, &raytransform);
 		if (!KX_RayCast::RayTest(physics_environment, frompoint, topoint, callback)) {
 			// couldn't find something to cast the shadow on...
-			memcpy(mat, origmat, sizeof(float) * 16);
+			origmat.Pack(mat);
 		}
 	}
+}
+
+void RAS_Rasterizer::FlushDebug(RAS_ICanvas *canvas, RAS_DebugDraw *debugDraw)
+{
+	m_debugDrawImpl->Flush(this, canvas, debugDraw);
 }
 
 void RAS_Rasterizer::DisableForText()
@@ -1386,7 +1424,7 @@ void RAS_Rasterizer::DisableForText()
 	SetAlphaBlend(GPU_BLEND_ALPHA);
 	SetLines(false); /* needed for texture fonts otherwise they render as wireframe */
 
-	Enable(RAS_CULL_FACE);
+	SetCullFace(true);
 
 	DisableLights();
 

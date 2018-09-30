@@ -152,7 +152,7 @@ static struct GPUTextureState {
 
 /* Mipmap settings */
 
-void GPU_set_gpu_mipmapping(int gpu_mipmap)
+void GPU_set_gpu_mipmapping(Main *bmain, int gpu_mipmap)
 {
 	int old_value = GTS.gpu_mipmap;
 
@@ -160,7 +160,7 @@ void GPU_set_gpu_mipmapping(int gpu_mipmap)
 	GTS.gpu_mipmap = gpu_mipmap && GLEW_EXT_framebuffer_object;
 
 	if (old_value != GTS.gpu_mipmap) {
-		GPU_free_images();
+		GPU_free_images(bmain);
 	}
 }
 
@@ -187,10 +187,10 @@ static void gpu_generate_mipmap(GLenum target)
 		glDisable(target);
 }
 
-void GPU_set_mipmap(bool mipmap)
+void GPU_set_mipmap(Main *bmain, bool mipmap)
 {
 	if (GTS.domipmap != mipmap) {
-		GPU_free_images();
+		GPU_free_images(bmain);
 		GTS.domipmap = mipmap;
 	}
 }
@@ -238,10 +238,10 @@ static GLenum gpu_get_mipmap_filter(bool mag)
 }
 
 /* Anisotropic filtering settings */
-void GPU_set_anisotropic(float value)
+void GPU_set_anisotropic(Main *bmain, float value)
 {
 	if (GTS.anisotropic != value) {
-		GPU_free_images();
+		GPU_free_images(bmain);
 
 		/* Clamp value to the maximum value the graphics card supports */
 		const float max = GPU_max_texture_anisotropy();
@@ -1030,7 +1030,7 @@ int GPU_set_tpage(MTexPoly *mtexpoly, int mipmap, int alphablend)
  * temporary disabling/enabling mipmapping on all images for quick texture
  * updates with glTexSubImage2D. images that didn't change don't have to be
  * re-uploaded to OpenGL */
-void GPU_paint_set_mipmap(bool mipmap)
+void GPU_paint_set_mipmap(Main *bmain, bool mipmap)
 {
 	if (!GTS.domipmap)
 		return;
@@ -1038,7 +1038,7 @@ void GPU_paint_set_mipmap(bool mipmap)
 	GTS.texpaint = !mipmap;
 
 	if (mipmap) {
-		for (Image *ima = G.main->image.first; ima; ima = ima->id.next) {
+		for (Image *ima = bmain->image.first; ima; ima = ima->id.next) {
 			if (BKE_image_has_bindcode(ima)) {
 				if (ima->tpageflag & IMA_MIPMAP_COMPLETE) {
 					if (ima->bindcode[TEXTARGET_TEXTURE_2D]) {
@@ -1061,7 +1061,7 @@ void GPU_paint_set_mipmap(bool mipmap)
 
 	}
 	else {
-		for (Image *ima = G.main->image.first; ima; ima = ima->id.next) {
+		for (Image *ima = bmain->image.first; ima; ima = ima->id.next) {
 			if (BKE_image_has_bindcode(ima)) {
 				if (ima->bindcode[TEXTARGET_TEXTURE_2D]) {
 					glBindTexture(GL_TEXTURE_2D, ima->bindcode[TEXTARGET_TEXTURE_2D]);
@@ -1233,9 +1233,9 @@ void GPU_paint_update_image(Image *ima, ImageUser *iuser, int x, int y, int w, i
 	BKE_image_release_ibuf(ima, ibuf, NULL);
 }
 
-void GPU_update_images_framechange(void)
+void GPU_update_images_framechange(Main *bmain)
 {
-	for (Image *ima = G.main->image.first; ima; ima = ima->id.next) {
+	for (Image *ima = bmain->image.first; ima; ima = ima->id.next) {
 		if (ima->tpageflag & IMA_TWINANIM) {
 			if (ima->twend >= ima->xrep * ima->yrep)
 				ima->twend = ima->xrep * ima->yrep - 1;
@@ -1358,7 +1358,7 @@ static void gpu_queue_image_for_free(Image *ima)
 	BLI_thread_unlock(LOCK_OPENGL);
 }
 
-void GPU_free_unused_buffers(void)
+void GPU_free_unused_buffers(Main *bmain)
 {
 	if (!BLI_thread_is_main())
 		return;
@@ -1370,7 +1370,7 @@ void GPU_free_unused_buffers(void)
 		Image *ima = node->link;
 
 		/* check in case it was freed in the meantime */
-		if (G.main && BLI_findindex(&G.main->image, ima) != -1)
+		if (bmain && BLI_findindex(&bmain->image, ima) != -1)
 			GPU_free_image(ima);
 	}
 
@@ -1414,24 +1414,29 @@ void GPU_free_image(Image *ima)
 	ima->tpageflag &= ~(IMA_MIPMAP_COMPLETE | IMA_GLBIND_IS_DATA);
 }
 
-void GPU_free_images(void)
+void GPU_free_images(Main *bmain)
 {
-	if (G.main)
-		for (Image *ima = G.main->image.first; ima; ima = ima->id.next)
+	if (bmain) {
+		for (Image *ima = bmain->image.first; ima; ima = ima->id.next) {
 			GPU_free_image(ima);
+		}
+	}
 }
 
 /* same as above but only free animated images */
-void GPU_free_images_anim(void)
+void GPU_free_images_anim(Main *bmain)
 {
-	if (G.main)
-		for (Image *ima = G.main->image.first; ima; ima = ima->id.next)
-			if (BKE_image_is_animated(ima))
+	if (bmain) {
+		for (Image *ima = bmain->image.first; ima; ima = ima->id.next) {
+			if (BKE_image_is_animated(ima)) {
 				GPU_free_image(ima);
+			}
+		}
+	}
 }
 
 
-void GPU_free_images_old(void)
+void GPU_free_images_old(Main *bmain)
 {
 	static int lasttime = 0;
 	int ctime = (int)PIL_check_seconds_timer();
@@ -1449,7 +1454,7 @@ void GPU_free_images_old(void)
 
 	lasttime = ctime;
 
-	Image *ima = G.main->image.first;
+	Image *ima = bmain->image.first;
 	while (ima) {
 		if ((ima->flag & IMA_NOCOLLECT) == 0 && ctime - ima->lastused > U.textimeout) {
 			/* If it's in GL memory, deallocate and set time tag to current time
@@ -1682,7 +1687,7 @@ void GPU_begin_object_materials(
 	/* viewport material, setup in space_view3d, defaults to matcap using ma->preview now */
 	if (use_matcap) {
 		GMS.gmatbuf[0] = v3d->defmaterial;
-		GPU_material_matcap(scene, v3d->defmaterial, use_opensubdiv);
+		GPU_material_matcap(scene, v3d->defmaterial, use_opensubdiv ? GPU_MATERIAL_OPENSUBDIV : 0);
 
 		/* do material 1 too, for displists! */
 		memcpy(&GMS.matbuf[1], &GMS.matbuf[0], sizeof(GPUMaterialFixed));
@@ -1700,7 +1705,7 @@ void GPU_begin_object_materials(
 
 			if (glsl) {
 				GMS.gmatbuf[0] = &defmaterial;
-				GPU_material_from_blender(GMS.gscene, &defmaterial, GMS.is_opensubdiv, false);
+				GPU_material_from_blender(GMS.gscene, &defmaterial, GMS.is_opensubdiv ? GPU_MATERIAL_OPENSUBDIV : 0);
 			}
 
 			GMS.alphablend[0] = GPU_BLEND_SOLID;
@@ -1714,7 +1719,7 @@ void GPU_begin_object_materials(
 			if (ma == NULL) ma = &defmaterial;
 
 			/* create glsl material if requested */
-			gpumat = glsl ? GPU_material_from_blender(GMS.gscene, ma, GMS.is_opensubdiv, false) : NULL;
+			gpumat = glsl ? GPU_material_from_blender(GMS.gscene, ma, GMS.is_opensubdiv ? GPU_MATERIAL_OPENSUBDIV : 0) : NULL;
 
 			if (gpumat) {
 				/* do glsl only if creating it succeed, else fallback */
@@ -1830,7 +1835,7 @@ int GPU_object_material_bind(int nr, void *attribs)
 	/* unbind glsl material */
 	if (GMS.gboundmat) {
 		if (GMS.is_alpha_pass) glDepthMask(0);
-		GPU_material_unbind(GPU_material_from_blender(GMS.gscene, GMS.gboundmat, GMS.is_opensubdiv, false));
+		GPU_material_unbind(GPU_material_from_blender(GMS.gscene, GMS.gboundmat, GMS.is_opensubdiv ? GPU_MATERIAL_OPENSUBDIV : 0));
 		GMS.gboundmat = NULL;
 	}
 
@@ -1858,7 +1863,7 @@ int GPU_object_material_bind(int nr, void *attribs)
 
 			float auto_bump_scale;
 
-			GPUMaterial *gpumat = GPU_material_from_blender(GMS.gscene, mat, GMS.is_opensubdiv, false);
+			GPUMaterial *gpumat = GPU_material_from_blender(GMS.gscene, mat, GMS.is_opensubdiv ? GPU_MATERIAL_OPENSUBDIV : 0);
 			GPU_material_vertex_attributes(gpumat, gattribs);
 
 			if (GMS.dob) {
@@ -1869,12 +1874,13 @@ int GPU_object_material_bind(int nr, void *attribs)
 				GPU_get_object_info(object_info, mat);
 			}
 
+			GPU_material_update_lamps(gpumat, GMS.gviewmat, GMS.gviewinv);
 			GPU_material_bind(
-			        gpumat, GMS.gob->lay, GMS.glay, 1.0, !(GMS.gob->mode & OB_MODE_TEXTURE_PAINT),
+			        gpumat, GMS.glay, 1.0, !(GMS.gob->mode & OB_MODE_TEXTURE_PAINT),
 			        GMS.gviewmat, GMS.gviewinv, GMS.gviewcamtexcofac, GMS.gscenelock);
 
 			auto_bump_scale = GMS.gob->derivedFinal != NULL ? GMS.gob->derivedFinal->auto_bump_scale : 1.0f;
-			GPU_material_bind_uniforms(gpumat, GMS.gob->obmat, GMS.gviewmat, GMS.gob->col, auto_bump_scale, &partile_info, object_info);
+			GPU_material_bind_uniforms(gpumat, GMS.gob->obmat, GMS.gviewmat, GMS.gob->col, GMS.gob->lay, auto_bump_scale, &partile_info, object_info);
 			GMS.gboundmat = mat;
 
 			/* for glsl use alpha blend mode, unless it's set to solid and
@@ -1962,7 +1968,7 @@ void GPU_object_material_unbind(void)
 			glDisable(GL_CULL_FACE);
 
 		if (GMS.is_alpha_pass) glDepthMask(0);
-		GPU_material_unbind(GPU_material_from_blender(GMS.gscene, GMS.gboundmat, GMS.is_opensubdiv, false));
+		GPU_material_unbind(GPU_material_from_blender(GMS.gscene, GMS.gboundmat, GMS.is_opensubdiv ? GPU_MATERIAL_OPENSUBDIV : 0));
 		GMS.gboundmat = NULL;
 	}
 	else
@@ -2257,8 +2263,7 @@ void GPU_draw_update_fvar_offset(DerivedMesh *dm)
 
 		gpu_material = GPU_material_from_blender(GMS.gscene,
 		                                         material,
-		                                         GMS.is_opensubdiv,
-												 false);
+		                                         GMS.is_opensubdiv);
 
 		GPU_material_update_fvar_offset(gpu_material, dm);
 	}

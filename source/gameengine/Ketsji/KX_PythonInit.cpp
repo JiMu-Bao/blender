@@ -243,8 +243,7 @@ static PyObject *gPyStartGame(PyObject *, PyObject *args)
 		return nullptr;
 	}
 
-	KX_GetActiveEngine()->RequestExit(KX_ExitRequest::START_OTHER_GAME);
-	KX_GetActiveEngine()->SetNameNextGame(blendfile);
+	KX_GetActiveEngine()->RequestExit(KX_ExitInfo::START_OTHER_GAME, blendfile);
 
 	Py_RETURN_NONE;
 }
@@ -255,7 +254,7 @@ PyDoc_STRVAR(gPyEndGame_doc,
              );
 static PyObject *gPyEndGame(PyObject *)
 {
-	KX_GetActiveEngine()->RequestExit(KX_ExitRequest::QUIT_GAME);
+	KX_GetActiveEngine()->RequestExit(KX_ExitInfo::QUIT_GAME);
 
 	Py_RETURN_NONE;
 }
@@ -266,8 +265,7 @@ PyDoc_STRVAR(gPyRestartGame_doc,
              );
 static PyObject *gPyRestartGame(PyObject *)
 {
-	KX_GetActiveEngine()->RequestExit(KX_ExitRequest::RESTART_GAME);
-	KX_GetActiveEngine()->SetNameNextGame(KX_GetMainPath());
+	KX_GetActiveEngine()->RequestExit(KX_ExitInfo::RESTART_GAME, KX_GetMainPath());
 
 	Py_RETURN_NONE;
 }
@@ -368,7 +366,7 @@ static PyObject *gPySetExitKey(PyObject *, PyObject *args)
 	if (!PyArg_ParseTuple(args, "h:setExitKey", &exitkey)) {
 		return nullptr;
 	}
-	KX_GetActiveEngine()->SetExitKey(exitkey);
+	KX_GetActiveEngine()->SetExitKey((SCA_IInputDevice::SCA_EnumInputs)exitkey);
 	Py_RETURN_NONE;
 }
 
@@ -551,7 +549,7 @@ static PyObject *gPyGetBlendFileList(PyObject *, PyObject *args)
 	}
 
 	while ((dirp = readdir(dp)) != nullptr) {
-		if (BLI_testextensie(dirp->d_name, ".blend")) {
+		if (BLI_path_extension_check(dirp->d_name, ".blend")) {
 			value = PyC_UnicodeFromByte(dirp->d_name);
 			PyList_Append(list, value);
 			Py_DECREF(value);
@@ -644,11 +642,11 @@ static PyObject *gLibLoad(PyObject *, PyObject *args, PyObject *kwds)
 	KX_LibLoadStatus *status = nullptr;
 
 	short options = 0;
-	int load_actions = 0, verbose = 0, load_scripts = 1, async = 0;
+	int load_actions = 0, verbose = 0, load_scripts = 1, asynchronous = 0;
 
 	if (!EXP_ParseTupleArgsAndKeywords(args, kwds, "ss|y*iiIiO:LibLoad",
-	                                   {"path", "group", "buffer", "load_actions", "verbose", "load_scripts", "async", "scene", 0},
-	                                   &path, &group, &py_buffer, &load_actions, &verbose, &load_scripts, &async, &pyscene)) {
+	                                   {"path", "group", "buffer", "load_actions", "verbose", "load_scripts", "asynchronous", "scene", 0},
+	                                   &path, &group, &py_buffer, &load_actions, &verbose, &load_scripts, &asynchronous, &pyscene)) {
 		return nullptr;
 	}
 
@@ -669,7 +667,7 @@ static PyObject *gLibLoad(PyObject *, PyObject *args, PyObject *kwds)
 	if (load_scripts != 0) {
 		options |= BL_Converter::LIB_LOAD_LOAD_SCRIPTS;
 	}
-	if (async != 0) {
+	if (asynchronous != 0) {
 		options |= BL_Converter::LIB_LOAD_ASYNC;
 	}
 
@@ -1115,7 +1113,7 @@ static PyObject *gPySetGLSLMaterialSetting(PyObject *,
 
 	/* display lists and GLSL materials need to be remade */
 	if (sceneflag != gs->glslflag) {
-		GPU_materials_free();
+		GPU_materials_free(G.main);
 		if (KX_GetActiveEngine()) {
 			EXP_ListValue<KX_Scene> *scenes = KX_GetActiveEngine()->CurrentScenes();
 
@@ -1124,6 +1122,10 @@ static PyObject *gPySetGLSLMaterialSetting(PyObject *,
 				scene->GetBlenderScene()->gm.flag = gs->glslflag;
 				if (scene->GetBucketManager()) {
 					scene->GetBucketManager()->ReloadMaterials();
+				}
+				KX_WorldInfo *world = scene->GetWorldInfo();
+				if (world) {
+					world->ReloadMaterial();
 				}
 			}
 		}
@@ -1296,29 +1298,24 @@ static PyObject *gPyGetMipmapping(PyObject *)
 
 static PyObject *gPySetVsync(PyObject *, PyObject *args)
 {
-	int interval;
+	int control;
 
-	if (!PyArg_ParseTuple(args, "i:setVsync", &interval)) {
+	if (!PyArg_ParseTuple(args, "i:setVsync", &control)) {
 		return nullptr;
 	}
 
-	if (interval < 0 || interval > VSYNC_ADAPTIVE) {
+	if (control < 0 || control >= RAS_ICanvas::SWAP_CONTROL_MAX) {
 		PyErr_SetString(PyExc_ValueError, "Rasterizer.setVsync(value): value must be VSYNC_OFF, VSYNC_ON, or VSYNC_ADAPTIVE");
 		return nullptr;
 	}
 
-	if (interval == VSYNC_ADAPTIVE) {
-		interval = -1;
-	}
-	KX_GetActiveEngine()->GetCanvas()->SetSwapInterval((interval == VSYNC_ON) ? 1 : 0);
+	KX_GetActiveEngine()->GetCanvas()->SetSwapControl((RAS_ICanvas::SwapControl)control);
 	Py_RETURN_NONE;
 }
 
 static PyObject *gPyGetVsync(PyObject *)
 {
-	int interval = 0;
-	KX_GetActiveEngine()->GetCanvas()->GetSwapInterval(interval);
-	return PyLong_FromLong(interval);
+	return PyLong_FromLong(KX_GetActiveEngine()->GetCanvas()->GetSwapControl());
 }
 
 static PyObject *gPyShowFramerate(PyObject *, PyObject *args)
@@ -2006,6 +2003,7 @@ static void addSubModule(PyObject *modules, PyObject *mod, PyObject *submod, con
 PyMODINIT_FUNC initBGE()
 {
 	PyObject *modules = PyThreadState_GET()->interp->modules;
+
 	PyObject *mod = PyModule_Create(&BGE_module_def);
 
 	addSubModule(modules, mod, initApplicationPythonBinding(), "bge.app");
@@ -2062,9 +2060,6 @@ void initPlayerPython(int argc, char **argv)
 	PySys_SetObject("argv", py_argv);
 	Py_DECREF(py_argv);
 
-	// Initialize thread support (also acquires lock).
-	PyEval_InitThreads();
-
 	bpy_import_init(PyEval_GetBuiltins());
 
 	/* The modules are imported to call their init functions to ensure the types they own are ready
@@ -2102,8 +2097,8 @@ void initGamePython(Main *main, PyObject *pyGlobalDict)
 	EXP_PyObjectPlus::NullDeprecationWarning();
 
 	PyObject *gameLogic = PyDict_GetItemString(modules, "GameLogic");
-	PyDict_SetItemString(PyModule_GetDict(gameLogic), "globalDict", pyGlobalDict);
-	Py_DECREF(gameLogic);
+	PyModule_AddObject(gameLogic, "globalDict", pyGlobalDict);
+	Py_INCREF(pyGlobalDict);
 }
 
 void exitGamePython()
@@ -2200,9 +2195,9 @@ PyMODINIT_FUNC initRasterizerPythonBinding()
 	KX_MACRO_addTypesToDict(d, RAS_MIPMAP_LINEAR, RAS_Rasterizer::RAS_MIPMAP_LINEAR);
 
 	/* for get/setVsync */
-	KX_MACRO_addTypesToDict(d, VSYNC_OFF, VSYNC_OFF);
-	KX_MACRO_addTypesToDict(d, VSYNC_ON, VSYNC_ON);
-	KX_MACRO_addTypesToDict(d, VSYNC_ADAPTIVE, VSYNC_ADAPTIVE);
+	KX_MACRO_addTypesToDict(d, VSYNC_OFF, RAS_ICanvas::VSYNC_OFF);
+	KX_MACRO_addTypesToDict(d, VSYNC_ON, RAS_ICanvas::VSYNC_ON);
+	KX_MACRO_addTypesToDict(d, VSYNC_ADAPTIVE, RAS_ICanvas::VSYNC_ADAPTIVE);
 
 	/* stereoscopy */
 	KX_MACRO_addTypesToDict(d, LEFT_EYE, RAS_Rasterizer::RAS_STEREO_LEFTEYE);
@@ -2666,7 +2661,7 @@ std::string pathGamePythonConfig()
 	int len = path.size();
 
 	/* replace extension */
-	if (BLI_testextensie(path.c_str(), ".blend")) {
+	if (BLI_path_extension_check(path.c_str(), ".blend")) {
 		path = path.substr(0, len - 6) + std::string(".bgeconf");
 	}
 	else {

@@ -34,18 +34,18 @@
 #include "RAS_BucketManager.h"
 #include "RAS_Mesh.h"
 #include "RAS_MeshUser.h"
+#include "RAS_InstancingBuffer.h"
 #include "RAS_Rasterizer.h"
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 
 #include "KX_Scene.h"
 
 #include <cstring>
 
 BL_BlenderShader::BL_BlenderShader(KX_Scene *scene, struct Material *ma,
-                                   int lightlayer, CM_UpdateServer<RAS_IPolyMaterial> *materialUpdateServer)
+		CM_UpdateServer<RAS_IMaterial> *materialUpdateServer)
 	:m_blenderScene(scene->GetBlenderScene()),
 	m_mat(ma),
-	m_lightLayer(lightlayer),
 	m_alphaBlend(GPU_BLEND_SOLID),
 	m_gpuMat(nullptr),
 	m_materialUpdateServer(materialUpdateServer)
@@ -111,6 +111,21 @@ const RAS_AttributeArray::AttribList BL_BlenderShader::GetAttribs(const RAS_Mesh
 	return attribs;
 }
 
+RAS_InstancingBuffer::Attrib BL_BlenderShader::GetInstancingAttribs() const
+{
+	GPUBuiltin builtins = GPU_get_material_builtins(m_gpuMat);
+
+	RAS_InstancingBuffer::Attrib attrib = RAS_InstancingBuffer::DEFAULT_ATTRIBS;
+	if (builtins & GPU_INSTANCING_COLOR) {
+		attrib = (RAS_InstancingBuffer::Attrib)(attrib | RAS_InstancingBuffer::COLOR_ATTRIB);
+	}
+	if (builtins & GPU_INSTANCING_LAYER) {
+		attrib = (RAS_InstancingBuffer::Attrib)(attrib | RAS_InstancingBuffer::LAYER_ATTRIB);
+	}
+
+	return attrib;
+}
+
 bool BL_BlenderShader::Ok() const
 {
 	return (m_gpuMat != nullptr);
@@ -124,20 +139,27 @@ void BL_BlenderShader::ReloadMaterial()
 		GPU_material_free(&m_mat->gpumaterialinstancing);
 	}
 
-	m_gpuMat = (m_mat) ? GPU_material_from_blender(m_blenderScene, m_mat, false, UseInstancing()) : nullptr;
+	GPUMaterialFlag flags = (GPUMaterialFlag)
+			(GPU_MATERIAL_NO_COLOR_MANAGEMENT | (UseInstancing() ? GPU_MATERIAL_INSTANCING : 0));
+	m_gpuMat = (m_mat) ? GPU_material_from_blender(m_blenderScene, m_mat, flags) : nullptr;
 
-	m_materialUpdateServer->NotifyUpdate(RAS_IPolyMaterial::SHADER_MODIFIED);
+	m_materialUpdateServer->NotifyUpdate(RAS_IMaterial::SHADER_MODIFIED);
 }
 
 void BL_BlenderShader::BindProg(RAS_Rasterizer *rasty)
 {
-	GPU_material_bind(m_gpuMat, m_lightLayer, m_blenderScene->lay, rasty->GetTime(), 1,
-	                  rasty->GetViewMatrix().Data(), rasty->GetViewInvMatrix().Data(), nullptr, false);
+	GPU_material_bind(m_gpuMat, m_blenderScene->lay, rasty->GetTime(), 1,
+					  rasty->GetViewMatrix().Data(), rasty->GetViewInvMatrix().Data(), nullptr, false);
 }
 
 void BL_BlenderShader::UnbindProg()
 {
 	GPU_material_unbind(m_gpuMat);
+}
+
+void BL_BlenderShader::UpdateLights(RAS_Rasterizer *rasty)
+{
+	GPU_material_update_lamps(m_gpuMat, rasty->GetViewMatrix().Data(), rasty->GetViewInvMatrix().Data());
 }
 
 void BL_BlenderShader::Update(RAS_MeshSlot *ms, RAS_Rasterizer *rasty)
@@ -146,10 +168,11 @@ void BL_BlenderShader::Update(RAS_MeshSlot *ms, RAS_Rasterizer *rasty)
 		return;
 	}
 
-	const float *obcol = ms->m_meshUser->GetColor().Data();
+	RAS_MeshUser *meshUser = ms->m_meshUser;
+	const float (&obcol)[4] = meshUser->GetColor().Data();
 
-	GPU_material_bind_uniforms(m_gpuMat, (float(*)[4])ms->m_meshUser->GetMatrix(), rasty->GetViewMatrix().Data(),
-	                           obcol, 1.0f, nullptr, nullptr);
+	GPU_material_bind_uniforms(m_gpuMat, meshUser->GetMatrix().Data(), rasty->GetViewMatrix().Data(),
+			obcol, meshUser->GetLayer(), 1.0f, nullptr, nullptr);
 
 	m_alphaBlend = GPU_material_alpha_blend(m_gpuMat, obcol);
 }
@@ -159,9 +182,10 @@ bool BL_BlenderShader::UseInstancing() const
 	return (GPU_instanced_drawing_support() && (m_mat->shade_flag & MA_INSTANCING));
 }
 
-void BL_BlenderShader::ActivateInstancing(void *matrixoffset, void *positionoffset, void *coloroffset, unsigned int stride)
+void BL_BlenderShader::ActivateInstancing(RAS_InstancingBuffer *buffer)
 {
-	GPU_material_bind_instancing_attrib(m_gpuMat, matrixoffset, positionoffset, coloroffset, stride);
+	GPU_material_bind_instancing_attrib(m_gpuMat, (void *)buffer->GetMatrixOffset(), (void *)buffer->GetPositionOffset(),
+			(void *)buffer->GetColorOffset(), (void *)buffer->GetLayerOffset());
 }
 
 int BL_BlenderShader::GetAlphaBlend()

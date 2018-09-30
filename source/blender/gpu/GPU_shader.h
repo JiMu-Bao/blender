@@ -75,7 +75,6 @@ int GPU_shader_program(GPUShader *shader);
 
 typedef struct GPUUniformInfo
 {
-	unsigned int location;
 	unsigned int size;
 	unsigned int type;
 	char name[255];
@@ -99,7 +98,7 @@ void GPU_shader_geometry_stage_primitive_io(GPUShader *shader, int input, int ou
 int GPU_shader_get_attribute(GPUShader *shader, const char *name);
 void GPU_shader_bind_attribute(GPUShader *shader, int location, const char *name);
 
-void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, void *positionoffset, unsigned int stride);
+void GPU_shader_bind_instancing_attrib(GPUShader *shader, void *matrixoffset, void *positionoffset);
 
 /* Builtin/Non-generated shaders */
 typedef enum GPUBuiltinShader {
@@ -112,12 +111,15 @@ typedef enum GPUBuiltinShader {
 	GPU_SHADER_BLACK                = 6,
 	GPU_SHADER_BLACK_INSTANCING     = 7,
 	GPU_SHADER_DRAW_FRAME_BUFFER	= 8,
-	GPU_SHADER_STEREO_STIPPLE       = 9,
-	GPU_SHADER_STEREO_ANAGLYPH      = 10,
-	GPU_SHADER_FRUSTUM_LINE         = 11,
-	GPU_SHADER_FRUSTUM_SOLID        = 12,
-	GPU_SHADER_FLAT_COLOR           = 13,
-	GPU_SHADER_2D_BOX               = 14,
+	GPU_SHADER_DRAW_FRAME_BUFFER_SRGB = 9,
+	GPU_SHADER_STEREO_STIPPLE       = 10,
+	GPU_SHADER_STEREO_STIPPLE_SRGB  = 11,
+	GPU_SHADER_STEREO_ANAGLYPH      = 12,
+	GPU_SHADER_STEREO_ANAGLYPH_SRGB = 13,
+	GPU_SHADER_FRUSTUM_LINE         = 14,
+	GPU_SHADER_FRUSTUM_SOLID        = 15,
+	GPU_SHADER_FLAT_COLOR           = 16,
+	GPU_SHADER_2D_BOX               = 17,
 } GPUBuiltinShader;
 
 GPUShader *GPU_shader_get_builtin_shader(GPUBuiltinShader shader);

@@ -37,6 +37,7 @@
 #include "CM_Message.h"
 
 #include <boost/format.hpp>
+#include <thread>
 
 #include "BLI_task.h"
 
@@ -78,6 +79,10 @@
 
 #define DEFAULT_LOGIC_TIC_RATE 60.0
 
+KX_ExitInfo::KX_ExitInfo()
+	:m_code(NO_REQUEST)
+{
+}
 
 KX_KetsjiEngine::CameraRenderData::CameraRenderData(KX_Camera *rendercam, KX_Camera *cullingcam, const RAS_Rect& area,
                                                     const RAS_Rect& viewport, RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye)
@@ -166,19 +171,14 @@ KX_KetsjiEngine::KX_KetsjiEngine()
 	m_ticrate(DEFAULT_LOGIC_TIC_RATE),
 	m_anim_framerate(25.0),
 	m_doRender(true),
-	m_exitkey(130),
-	m_exitcode(KX_ExitRequest::NO_REQUEST),
-	m_exitstring(""),
+	m_exitKey(SCA_IInputDevice::ENDKEY),
 	m_logger(KX_TimeCategoryLogger(m_clock, 25)),
 	m_average_framerate(0.0),
 	m_showBoundingBox(KX_DebugOption::DISABLE),
 	m_showArmature(KX_DebugOption::DISABLE),
 	m_showCameraFrustum(KX_DebugOption::DISABLE),
 	m_showShadowFrustum(KX_DebugOption::DISABLE),
-	m_globalsettings(
-{
-	0
-}),
+	m_globalsettings({0}),
 	m_taskscheduler(BLI_task_scheduler_create(TASK_SCHEDULER_AUTO_THREADS))
 {
 	for (int i = tc_first; i < tc_numCategories; i++) {
@@ -350,34 +350,47 @@ bool KX_KetsjiEngine::NextFrame()
 	 * XXX render.fps is not considred anywhere.
 	 */
 
-	double timestep = m_timescale / m_ticrate;
-	if (!(m_flags & USE_EXTERNAL_CLOCK)) {
-		double current_time = m_clock.GetTimeSecond();
-		double dt = current_time - m_previousRealTime;
-		m_previousRealTime = current_time;
+	// Number of logic/physics frames to proceed.
+	int frames;
+	double timestep;
+
+	if (m_flags & USE_EXTERNAL_CLOCK) {
+		timestep = m_clockTime - m_frameTime;
+		// Always proceed a frame when the user control time.
+		frames = 1;
+	}
+	else {
+		const double now = m_clock.GetTimeSecond();
+		const double dt = now - m_previousRealTime;
+		m_previousRealTime = now;
 		m_clockTime += dt * m_timescale;
 
-		if (!(m_flags & FIXED_FRAMERATE)) {
+		const double deltatime = m_clockTime - m_frameTime;
+		if (deltatime < 0.0) {
+			// We got here too quickly, which means there is nothing to do, just return and don't render.
+			// Not sure if this is the best fix, but it seems to stop the jumping framerate issue (#33088)
+			return false;
+		}
+
+		// Compute the number of logic frames to do each update in case of fixed framerate.
+		if (m_flags & FIXED_FRAMERATE) {
+			timestep = m_timescale / m_ticrate;
+			const double scale = m_ticrate / m_timescale + 1e-6;
+			frames = int(deltatime * scale);
+
+			// If the elapsed time induce a higher framerate, sleep until the next frame time point.
+			if (frames == 0) {
+				const double sleeptime = 1.0 / scale - deltatime;
+				std::this_thread::sleep_for(std::chrono::nanoseconds((long)(sleeptime * 1.0e9)));
+				frames = 1;
+			}
+		}
+		else {
 			timestep = dt * m_timescale;
+			// In case of non-fixed framerate, we always proceed one frame.
+			frames = 1;
 		}
 	}
-
-	double deltatime = m_clockTime - m_frameTime;
-	if (deltatime < 0.0) {
-		// We got here too quickly, which means there is nothing to do, just return and don't render.
-		// Not sure if this is the best fix, but it seems to stop the jumping framerate issue (#33088)
-		return false;
-	}
-
-	// In case of non-fixed framerate, we always proceed one frame.
-	int frames = 1;
-
-	// Compute the number of logic frames to do each update in case of fixed framerate.
-	if (m_flags & FIXED_FRAMERATE) {
-		frames = int(deltatime * m_ticrate / m_timescale + 1e-6);
-	}
-
-//	CM_Debug("dt = " << dt << ", deltatime = " << deltatime << ", frames = " << frames);
 
 	double framestep = timestep;
 
@@ -386,7 +399,7 @@ bool KX_KetsjiEngine::NextFrame()
 		frames = m_maxPhysicsFrame;
 	}
 
-	bool doRender = frames > 0;
+	const bool doRender = frames > 0;
 
 	if (frames > m_maxLogicFrame) {
 		framestep = (frames * timestep) / m_maxLogicFrame;
@@ -717,41 +730,30 @@ void KX_KetsjiEngine::Render()
 	if (renderData.m_renderPerEye) {
 		RAS_OffScreen *leftofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[0].m_ofsType);
 		RAS_OffScreen *rightofs = m_rasterizer->GetOffScreen(renderData.m_frameDataList[1].m_ofsType);
-		m_rasterizer->DrawStereoOffScreen(m_canvas, leftofs, rightofs, renderData.m_stereoMode);
+		m_rasterizer->DrawStereoOffScreenToScreen(m_canvas, leftofs, rightofs, renderData.m_stereoMode);
 	}
 	// Else simply draw the off screen to screen.
 	else {
-		m_rasterizer->DrawOffScreen(m_canvas, m_rasterizer->GetOffScreen(renderData.m_frameDataList[0].m_ofsType));
+		m_rasterizer->DrawOffScreenToScreen(m_canvas, m_rasterizer->GetOffScreen(renderData.m_frameDataList[0].m_ofsType));
 	}
 
 	EndFrame();
 }
 
-void KX_KetsjiEngine::RequestExit(KX_ExitRequest exitrequestmode)
+void KX_KetsjiEngine::RequestExit(KX_ExitInfo::Code code)
 {
-	m_exitcode = exitrequestmode;
+	RequestExit(code, "");
 }
 
-void KX_KetsjiEngine::SetNameNextGame(const std::string& nextgame)
+void KX_KetsjiEngine::RequestExit(KX_ExitInfo::Code code, const std::string& fileName)
 {
-	m_exitstring = nextgame;
+	m_exitInfo.m_code = code;
+	m_exitInfo.m_fileName = fileName;
 }
 
-KX_ExitRequest KX_KetsjiEngine::GetExitCode()
+const KX_ExitInfo& KX_KetsjiEngine::GetExitInfo() const
 {
-	// if a game actuator has set an exit code or if there are no scenes left
-	if (m_exitcode == KX_ExitRequest::NO_REQUEST) {
-		if (m_scenes->Empty()) {
-			m_exitcode = KX_ExitRequest::NO_SCENES_LEFT;
-		}
-	}
-
-	return m_exitcode;
-}
-
-const std::string& KX_KetsjiEngine::GetExitString()
-{
-	return m_exitstring;
+	return m_exitInfo;
 }
 
 void KX_KetsjiEngine::EnableCameraOverride(const std::string& forscene, const mt::mat4& projmat,
@@ -1329,8 +1331,8 @@ void KX_KetsjiEngine::ConvertScene(KX_Scene *scene)
 {
 	BL_SceneConverter sceneConverter(scene);
 	m_converter->ConvertScene(sceneConverter, false);
-	// Finalize material and mesh conversion.
-	m_converter->FinalizeSceneData(sceneConverter, scene);
+	m_converter->PostConvertScene(sceneConverter);
+	m_converter->FinalizeSceneData(sceneConverter);
 }
 
 void KX_KetsjiEngine::AddScheduledScenes()
@@ -1409,7 +1411,6 @@ void KX_KetsjiEngine::ReplaceScheduledScenes()
 					Scene *blScene = m_converter->GetBlenderSceneForName(newscenename);
 					if (blScene) {
 						DestructScene(scene);
-						m_scenes->RemoveValue(scene);
 
 						KX_Scene *tmpscene = CreateScene(blScene);
 						ConvertScene(tmpscene);
@@ -1540,14 +1541,14 @@ double KX_KetsjiEngine::GetAverageFrameRate()
 	return m_average_framerate;
 }
 
-void KX_KetsjiEngine::SetExitKey(short key)
+void KX_KetsjiEngine::SetExitKey(SCA_IInputDevice::SCA_EnumInputs key)
 {
-	m_exitkey = key;
+	m_exitKey = key;
 }
 
-short KX_KetsjiEngine::GetExitKey()
+SCA_IInputDevice::SCA_EnumInputs KX_KetsjiEngine::GetExitKey() const
 {
-	return m_exitkey;
+	return m_exitKey;
 }
 
 void KX_KetsjiEngine::SetRender(bool render)
@@ -1569,6 +1570,10 @@ void KX_KetsjiEngine::ProcessScheduledScenes()
 		ReplaceScheduledScenes();
 		RemoveScheduledScenes();
 		AddScheduledScenes();
+	}
+
+	if (m_scenes->Empty()) {
+		RequestExit(KX_ExitInfo::NO_SCENES_LEFT);
 	}
 }
 

@@ -578,13 +578,6 @@ static BlendFileData *load_game_data(const char *progname, char *filename = null
 	return bfd;
 }
 
-/// Return true when the exit code ask to quit the engine.
-static bool quitGame(KX_ExitRequest exitcode)
-{
-	// Exit the game engine if we are not restarting the game or loading an other file.
-	return (exitcode != KX_ExitRequest::RESTART_GAME && exitcode != KX_ExitRequest::START_OTHER_GAME);
-}
-
 #ifdef WITH_GAMEENGINE_BPPLAYER
 
 static BlendFileData *load_encrypted_game_data(const char *filename, std::string encryptKey)
@@ -778,7 +771,7 @@ int main(int argc,
 	// XXX add the ability to change this values to the command line parsing.
 	U.mixbufsize = 2048;
 	U.audiodevice = 2;
-	U.audiorate = 44100;
+	U.audiorate = 48000;
 	U.audioformat = 0x24;
 	U.audiochannels = 2;
 
@@ -1121,8 +1114,7 @@ int main(int argc,
 			// this bracket is needed for app (see below) to get out
 			// of scope before GHOST_ISystem::disposeSystem() is called.
 			{
-				KX_ExitRequest exitcode = KX_ExitRequest::NO_REQUEST;
-				std::string exitstring = "";
+				KX_ExitInfo exitInfo;
 				bool firstTimeRunning = true;
 				char filename[FILE_MAX];
 				char pathname[FILE_MAX];
@@ -1142,12 +1134,12 @@ int main(int argc,
 					// Read the Blender file
 					BlendFileData *bfd;
 
-					// if we got an exitcode 3 (KX_ExitRequest::START_OTHER_GAME) load a different file
-					if (exitcode == KX_ExitRequest::START_OTHER_GAME) {
+					// if we got an exitcode 3 (KX_ExitInfo::START_OTHER_GAME) load a different file
+					if (exitInfo.m_code == KX_ExitInfo::START_OTHER_GAME) {
 						char basedpath[FILE_MAX];
 
 						// base the actuator filename relative to the last file
-						BLI_strncpy(basedpath, exitstring.c_str(), sizeof(basedpath));
+						BLI_strncpy(basedpath, exitInfo.m_fileName.c_str(), sizeof(basedpath));
 						BLI_path_abs(basedpath, pathname);
 						bfd = load_game_data(basedpath);
 
@@ -1189,7 +1181,7 @@ int main(int argc,
 					if (!bfd) {
 						usage(argv[0], isBlenderPlayer);
 						error = true;
-						exitcode = KX_ExitRequest::QUIT_GAME;
+						exitInfo.m_code = KX_ExitInfo::QUIT_GAME;
 					}
 					else {
 						/* Setting options according to the blend file if not overriden in the command line */
@@ -1358,11 +1350,11 @@ int main(int argc,
 							GPU_init();
 
 							if (SYS_GetCommandLineInt(syshandle, "nomipmap", 0)) {
-								GPU_set_mipmap(0);
+								GPU_set_mipmap(G.main, 0);
 							}
 
-							GPU_set_anisotropic(U.anisotropic_filter);
-							GPU_set_gpu_mipmapping(U.use_gpu_mipmap);
+							GPU_set_anisotropic(G.main, U.anisotropic_filter);
+							GPU_set_gpu_mipmapping(G.main, U.use_gpu_mipmap);
 							GPU_set_linear_mipmap(true);
 						}
 
@@ -1377,10 +1369,8 @@ int main(int argc,
 						launcher.InitEngine();
 
 						// Enter main loop
-						launcher.EngineMainLoop();
+						exitInfo = launcher.EngineMainLoop();
 
-						exitcode = launcher.GetExitRequested();
-						exitstring = launcher.GetExitString();
 						gs = *launcher.GetGlobalSettings();
 
 						launcher.ExitEngine();
@@ -1389,7 +1379,7 @@ int main(int argc,
 						/* G.main == bfd->main, it gets referenced in free_nodesystem so we can't have a dangling pointer */
 						G.main = nullptr;
 					}
-				} while (!quitGame(exitcode));
+				} while (ELEM(exitInfo.m_code, KX_ExitInfo::RESTART_GAME, KX_ExitInfo::START_OTHER_GAME));
 			}
 
 			GPU_exit();
@@ -1402,6 +1392,9 @@ int main(int argc,
 
 			// Seg Fault; icon.c gIcons == 0
 			BKE_icons_free();
+
+			window->setCursorShape(GHOST_kStandardCursorDefault);
+			window->setCursorVisibility(true);
 
 			if (window) {
 				system->disposeWindow(window);

@@ -419,13 +419,6 @@ PyObject *mathutils_dynstr_to_py(struct DynStr *ds)
 }
 #endif
 
-/* silly function, we dont use arg. just check its compatible with __deepcopy__ */
-int mathutils_deepcopy_args_check(PyObject *args)
-{
-	PyObject *dummy_pydict;
-	return PyArg_ParseTuple(args, "|O!:__deepcopy__", &PyDict_Type, &dummy_pydict) != 0;
-}
-
 /* Mathutils Callbacks */
 
 /* for mathutils internal use only, eventually should re-alloc but to start with we only have a few users */
@@ -442,7 +435,7 @@ unsigned char Mathutils_RegisterCallback(Mathutils_Callback *cb)
 			return i;
 	}
 
-	BLI_assert(i + 1 < MATHUTILS_TOT_CB);
+	BLI_assert(i < MATHUTILS_TOT_CB);
 
 	mathutils_callbacks[i] = cb;
 	return i;

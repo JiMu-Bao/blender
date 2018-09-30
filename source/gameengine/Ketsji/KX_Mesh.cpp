@@ -36,7 +36,7 @@
 
 #include "BL_Converter.h"
 
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 #include "RAS_DisplayArray.h"
 #include "RAS_BucketManager.h"
 #include "SCA_LogicManager.h"
@@ -117,7 +117,7 @@ PyMethodDef KX_Mesh::Methods[] = {
 	{"transformUV", (PyCFunction)KX_Mesh::sPyTransformUV, METH_VARARGS},
 	{"replaceMaterial", (PyCFunction)KX_Mesh::sPyReplaceMaterial, METH_VARARGS},
 	{"copy", (PyCFunction)KX_Mesh::sPyCopy, METH_NOARGS},
-	{"constructBvh", (PyCFunction)KX_Mesh::sPyConstructBvh, METH_VARARGS},
+	{"constructBvh", (PyCFunction)KX_Mesh::sPyConstructBvh, METH_VARARGS | METH_KEYWORDS},
 	{nullptr, nullptr} //Sentinel
 };
 
@@ -372,7 +372,7 @@ PyObject *KX_Mesh::PyReplaceMaterial(PyObject *args, PyObject *kwds)
 		return nullptr;
 	}
 
-	KX_Scene *scene = (KX_Scene *)meshmat->GetBucket()->GetPolyMaterial()->GetScene();
+	KX_Scene *scene = (KX_Scene *)meshmat->GetBucket()->GetMaterial()->GetScene();
 	if (scene != mat->GetScene()) {
 		PyErr_Format(PyExc_ValueError, "Mesh successor scene doesn't match current mesh scene");
 		return nullptr;
@@ -405,8 +405,14 @@ PyObject *KX_Mesh::PyCopy()
 PyObject *KX_Mesh::PyConstructBvh(PyObject *args, PyObject *kwds)
 {
 	float epsilon = 0.0f;
+	PyObject *pymat = nullptr;
 
-	if (!PyArg_ParseTuple(args, "|f:constructBvh", &epsilon)) {
+	if (!EXP_ParseTupleArgsAndKeywords(args, kwds, "|Of:constructBvh", {"transform", "epsilon", 0}, &pymat, &epsilon)) {
+		return nullptr;
+	}
+
+	mt::mat4 mat = mt::mat4::Identity();
+	if (pymat && !PyMatTo(pymat, mat)) {
 		return nullptr;
 	}
 
@@ -417,15 +423,17 @@ PyObject *KX_Mesh::PyConstructBvh(PyObject *args, PyObject *kwds)
 	for (const PolygonRangeInfo& range : m_polygonRanges) {
 		numVert += range.array->GetVertexCount();
 	}
-
-	float (*coords)[3] = (float (*)[3])MEM_mallocN(sizeof(float[3]) * numVert, __func__);
+	
+	const char *function_macro = __func__; //Workaround for MSVC2015
+	float (*coords)[3] = (float (*)[3])MEM_mallocN(sizeof(float[3]) * numVert, function_macro);
 	// Convert the vertices.
 	{
 		unsigned vertBase = 0;
 		for (const PolygonRangeInfo& range : m_polygonRanges) {
 			RAS_DisplayArray *array = range.array;
 			for (unsigned int i = 0, size = array->GetVertexCount(); i < size; ++i) {
-				copy_v3_v3(coords[vertBase + i], array->GetPosition(i).data);
+				const mt::vec3 pos = mat * mt::vec3(array->GetPosition(i));
+				pos.Pack(coords[vertBase + i]);
 			}
 			vertBase += array->GetVertexCount();
 		}
@@ -476,8 +484,7 @@ PyObject *KX_Mesh::pyattr_get_materials(EXP_PyObjectPlus *self_v, const EXP_PYAT
 
 	for (unsigned short i = 0; i < tot; ++i) {
 		RAS_MeshMaterial *mmat = self->m_materials[i];
-		RAS_IPolyMaterial *polymat = mmat->GetBucket()->GetPolyMaterial();
-		KX_BlenderMaterial *mat = static_cast<KX_BlenderMaterial *>(polymat);
+		KX_BlenderMaterial *mat = static_cast<KX_BlenderMaterial *>(mmat->GetBucket()->GetMaterial());
 		PyList_SET_ITEM(materials, i, mat->GetProxy());
 	}
 	return materials;

@@ -84,6 +84,8 @@ void BKE_lamp_init(Lamp *la)
 	la->coeff_lin = 0.0f;
 	la->coeff_quad = 0.0f;
 	la->curfalloff = curvemapping_add(1, 0.0f, 1.0f, 1.0f, 0.0f);
+	la->radius = 8.0f;
+	la->cutoff = 0.001f;
 	la->sun_effect_type = 0;
 	la->horizon_brightness = 1.0;
 	la->spread = 1.0;
@@ -100,7 +102,7 @@ void BKE_lamp_init(Lamp *la)
 	la->sky_colorspace = BLI_XYZ_CIE;
 	la->sky_exposure = 1.0f;
 	la->shadow_frustum_size = 10.0f;
-	
+
 	curvemapping_initialize(la->curfalloff);
 }
 
@@ -166,7 +168,7 @@ Lamp *BKE_lamp_localize(Lamp *la)
 
 	Lamp *lan;
 	int a;
-	
+
 	lan = BKE_libblock_copy_nolib(&la->id, false);
 
 	for (a = 0; a < MAX_MTEX; a++) {
@@ -175,12 +177,12 @@ Lamp *BKE_lamp_localize(Lamp *la)
 			memcpy(lan->mtex[a], la->mtex[a], sizeof(MTex));
 		}
 	}
-	
+
 	lan->curfalloff = curvemapping_copy(la->curfalloff);
 
 	if (la->nodetree)
 		lan->nodetree = ntreeLocalize(la->nodetree);
-	
+
 	lan->preview = NULL;
 
 	return lan;
@@ -198,7 +200,7 @@ void BKE_lamp_free(Lamp *la)
 	for (a = 0; a < MAX_MTEX; a++) {
 		MEM_SAFE_FREE(la->mtex[a]);
 	}
-	
+
 	BKE_animdata_free((ID *)la, false);
 
 	curvemapping_free(la->curfalloff);
@@ -209,7 +211,7 @@ void BKE_lamp_free(Lamp *la)
 		MEM_freeN(la->nodetree);
 		la->nodetree = NULL;
 	}
-	
+
 	BKE_previewimg_free(&la->preview);
 	BKE_icon_id_delete(&la->id);
 	la->id.icon_id = 0;
@@ -224,7 +226,7 @@ static void lamp_node_drivers_update(Scene *scene, bNodeTree *ntree, float ctime
 	/* nodetree itself */
 	if (ntree->adt && ntree->adt->drivers.first)
 		BKE_animsys_evaluate_animdata(scene, &ntree->id, ntree->adt, ctime, ADT_RECALC_DRIVERS);
-	
+
 	/* nodes */
 	for (node = ntree->nodes.first; node; node = node->next)
 		if (node->id && node->type == NODE_GROUP)
@@ -240,15 +242,14 @@ void lamp_drivers_update(Scene *scene, Lamp *la, float ctime)
 		return;
 
 	la->id.tag |= LIB_TAG_DOIT;
-	
+
 	/* lamp itself */
 	if (la->adt && la->adt->drivers.first)
 		BKE_animsys_evaluate_animdata(scene, &la->id, la->adt, ctime, ADT_RECALC_DRIVERS);
-	
+
 	/* nodes */
 	if (la->nodetree)
 		lamp_node_drivers_update(scene, la->nodetree, ctime);
 
 	la->id.tag &= ~LIB_TAG_DOIT;
 }
-

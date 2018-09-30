@@ -37,7 +37,7 @@
 #include "RAS_MaterialBucket.h"
 #include "RAS_Mesh.h"
 #include "RAS_MeshUser.h"
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 #include "RAS_Rasterizer.h"
 
 #include "RAS_BucketManager.h"
@@ -49,8 +49,7 @@ RAS_BucketManager::SortedMeshSlot::SortedMeshSlot(RAS_MeshSlot *ms, const mt::ve
 	:m_ms(ms)
 {
 	// would be good to use the actual bounding box center instead
-	float *matrix = m_ms->m_meshUser->GetMatrix();
-	const mt::vec3 pos(matrix[12], matrix[13], matrix[14]);
+	const mt::vec3 pos = m_ms->m_meshUser->GetMatrix().TranslationVector3D();
 
 	m_z = mt::dot(pnorm, pos);
 }
@@ -60,8 +59,7 @@ RAS_BucketManager::SortedMeshSlot::SortedMeshSlot(RAS_MeshSlotUpwardNode *node, 
 {
 	RAS_MeshSlot *ms = m_node->GetOwner();
 	// would be good to use the actual bounding box center instead
-	float *matrix = ms->m_meshUser->GetMatrix();
-	const mt::vec3 pos(matrix[12], matrix[13], matrix[14]);
+	const mt::vec3 pos = ms->m_meshUser->GetMatrix().TranslationVector3D();
 
 	m_z = mt::dot(pnorm, pos);
 }
@@ -76,28 +74,40 @@ bool RAS_BucketManager::fronttoback::operator()(const SortedMeshSlot &a, const S
 	return (a.m_z > b.m_z) || (a.m_z == b.m_z && a.m_ms > b.m_ms);
 }
 
-RAS_BucketManager::RAS_BucketManager(RAS_IPolyMaterial *textMaterial)
+RAS_BucketManager::RAS_BucketManager(RAS_IMaterial *textMaterial)
 	:m_downwardNode(this, &m_nodeData, nullptr, nullptr),
 	m_upwardNode(this, &m_nodeData, nullptr, nullptr)
 {
-	m_text.m_material = textMaterial;
 	bool created;
-	RAS_MaterialBucket *bucket = FindBucket(m_text.m_material, created);
-	m_text.m_arrayBucket = new RAS_DisplayArrayBucket(bucket, nullptr, nullptr, nullptr, nullptr);
+	m_text.m_bucket = FindBucket(textMaterial, created);
+	m_text.m_arrayBucket = new RAS_DisplayArrayBucket(m_text.m_bucket, nullptr, nullptr, nullptr, nullptr);
 }
 
 RAS_BucketManager::~RAS_BucketManager()
 {
 	delete m_text.m_arrayBucket;
-	delete m_text.m_material;
 
 	for (RAS_MaterialBucket *bucket : m_buckets[ALL_BUCKET]) {
 		delete bucket;
 	}
 }
 
+void RAS_BucketManager::PrepareBuckets(RAS_Rasterizer *rasty, RAS_BucketManager::BucketType bucketType)
+{
+	if (m_nodeData.m_shaderOverride) {
+		return;
+	}
+
+	for (RAS_MaterialBucket *bucket : m_buckets[bucketType]) {
+		RAS_IMaterial *mat = bucket->GetMaterial();
+		mat->Prepare(rasty);
+	}
+}
+
 void RAS_BucketManager::RenderSortedBuckets(RAS_Rasterizer *rasty, RAS_BucketManager::BucketType bucketType)
 {
+	PrepareBuckets(rasty, bucketType);
+
 	BucketList& solidBuckets = m_buckets[bucketType];
 	RAS_UpwardTreeLeafs leafs;
 	for (RAS_MaterialBucket *bucket : solidBuckets) {
@@ -133,6 +143,8 @@ void RAS_BucketManager::RenderSortedBuckets(RAS_Rasterizer *rasty, RAS_BucketMan
 
 void RAS_BucketManager::RenderBasicBuckets(RAS_Rasterizer *rasty, RAS_BucketManager::BucketType bucketType)
 {
+	PrepareBuckets(rasty, bucketType);
+
 	RAS_UpwardTreeLeafs leafs;
 	for (RAS_MaterialBucket *bucket : m_buckets[bucketType]) {
 		bucket->GenerateTree(m_downwardNode, m_upwardNode, leafs, m_nodeData.m_drawingMode, false);
@@ -313,12 +325,12 @@ void RAS_BucketManager::Renderbuckets(RAS_Rasterizer::DrawType drawingMode, cons
 	rasty->SetClientObject(nullptr);
 }
 
-RAS_MaterialBucket *RAS_BucketManager::FindBucket(RAS_IPolyMaterial *material, bool &bucketCreated)
+RAS_MaterialBucket *RAS_BucketManager::FindBucket(RAS_IMaterial *material, bool &bucketCreated)
 {
 	bucketCreated = false;
 
 	for (RAS_MaterialBucket *bucket : m_buckets[ALL_BUCKET]) {
-		if (bucket->GetPolyMaterial() == material) {
+		if (bucket->GetMaterial() == material) {
 			return bucket;
 		}
 	}
@@ -357,23 +369,23 @@ RAS_DisplayArrayBucket *RAS_BucketManager::GetTextDisplayArrayBucket() const
 	return m_text.m_arrayBucket;
 }
 
-void RAS_BucketManager::ReloadMaterials(RAS_IPolyMaterial *mat)
+void RAS_BucketManager::ReloadMaterials(RAS_IMaterial *mat)
 {
 	for (RAS_MaterialBucket *bucket : m_buckets[ALL_BUCKET]) {
-		if (mat == nullptr || (mat == bucket->GetPolyMaterial())) {
-			bucket->GetPolyMaterial()->ReloadMaterial();
+		if (mat == nullptr || (mat == bucket->GetMaterial())) {
+			bucket->GetMaterial()->ReloadMaterial();
 		}
 	}
 }
 
 /* frees the bucket, only used when freeing scenes */
-void RAS_BucketManager::RemoveMaterial(RAS_IPolyMaterial *mat)
+void RAS_BucketManager::RemoveMaterial(RAS_IMaterial *mat)
 {
 	for (unsigned short i = 0; i < NUM_BUCKET_TYPE; ++i) {
 		BucketList& buckets = m_buckets[i];
 		for (BucketList::iterator it = buckets.begin(); it != buckets.end(); ) {
 			RAS_MaterialBucket *bucket = *it;
-			if (mat == bucket->GetPolyMaterial()) {
+			if (mat == bucket->GetMaterial()) {
 				it = buckets.erase(it);
 				if (i == ALL_BUCKET) {
 					delete bucket;
@@ -386,12 +398,14 @@ void RAS_BucketManager::RemoveMaterial(RAS_IPolyMaterial *mat)
 	}
 }
 
-void RAS_BucketManager::MergeBucketManager(RAS_BucketManager *other, SCA_IScene *scene)
+void RAS_BucketManager::Merge(RAS_BucketManager *other, SCA_IScene *scene)
 {
 	for (unsigned short i = 0; i < NUM_BUCKET_TYPE; ++i) {
 		BucketList& buckets = m_buckets[i];
 		BucketList& otherbuckets = other->m_buckets[i];
-		buckets.insert(buckets.begin(), otherbuckets.begin(), otherbuckets.end());
+
+		// Skip the text bucket.
+		std::remove_copy(otherbuckets.begin(), otherbuckets.end(), std::back_inserter(buckets), other->m_text.m_bucket);
 		otherbuckets.clear();
 	}
 }

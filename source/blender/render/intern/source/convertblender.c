@@ -3757,24 +3757,24 @@ static GroupObject *add_render_lamp(Render *re, Object *ob)
 	}
 	else if (lar->type==LA_AREA) {
 		switch (lar->area_shape) {
-		case LA_AREA_SQUARE:
-			lar->ray_totsamp= lar->ray_samp*lar->ray_samp;
-			lar->ray_sampy= lar->ray_samp;
-			lar->area_sizey= lar->area_size;
-			break;
-		case LA_AREA_RECT:
-			lar->ray_totsamp= lar->ray_samp*lar->ray_sampy;
-			break;
-		case LA_AREA_CUBE:
-			lar->ray_totsamp= lar->ray_samp*lar->ray_samp*lar->ray_samp;
-			lar->ray_sampy= lar->ray_samp;
-			lar->ray_sampz= lar->ray_samp;
-			lar->area_sizey= lar->area_size;
-			lar->area_sizez= lar->area_size;
-			break;
-		case LA_AREA_BOX:
-			lar->ray_totsamp= lar->ray_samp*lar->ray_sampy*lar->ray_sampz;
-			break;
+			case LA_AREA_SQUARE:
+				lar->ray_totsamp= lar->ray_samp*lar->ray_samp;
+				lar->ray_sampy= lar->ray_samp;
+				lar->area_sizey= lar->area_size;
+				break;
+			case LA_AREA_RECT:
+				lar->ray_totsamp= lar->ray_samp*lar->ray_sampy;
+				break;
+			case LA_AREA_CUBE:
+				lar->ray_totsamp= lar->ray_samp*lar->ray_samp*lar->ray_samp;
+				lar->ray_sampy= lar->ray_samp;
+				lar->ray_sampz= lar->ray_samp;
+				lar->area_sizey= lar->area_size;
+				lar->area_sizez= lar->area_size;
+				break;
+			case LA_AREA_BOX:
+				lar->ray_totsamp= lar->ray_samp*lar->ray_sampy*lar->ray_sampz;
+				break;
 		}
 
 		area_lamp_vectors(lar);
@@ -3823,6 +3823,8 @@ static GroupObject *add_render_lamp(Render *re, Object *ob)
 	lar->coeff_lin= la->coeff_lin;
 	lar->coeff_quad= la->coeff_quad;
 	lar->curfalloff = curvemapping_copy(la->curfalloff);
+	lar->radius = la->radius;
+	lar->cutoff = la->cutoff;
 
 	if (lar->curfalloff) {
 		/* so threads don't conflict on init */

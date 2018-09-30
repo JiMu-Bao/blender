@@ -42,7 +42,7 @@
 #include "KX_BlenderMaterial.h"
 #include "KX_TextMaterial.h"
 #include "KX_FontObject.h"
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 #include "EXP_ListValue.h"
 #include "SCA_LogicManager.h"
 #include "SCA_TimeEventManager.h"
@@ -188,8 +188,7 @@ KX_Scene::KX_Scene(SCA_IInputDevice *inputDevice,
 	m_networkScene = new KX_NetworkMessageScene(messageManager);
 
 	m_rendererManager = new KX_TextureRendererManager(this);
-	KX_TextMaterial *textMaterial = new KX_TextMaterial();
-	m_bucketmanager = new RAS_BucketManager(textMaterial);
+	m_bucketmanager = new RAS_BucketManager(KX_TextMaterial::GetSingleton());
 	m_boundingBoxManager = new RAS_BoundingBoxManager();
 
 	m_animationPool = BLI_task_pool_create(KX_GetActiveEngine()->GetTaskScheduler(), &m_animationPoolData);
@@ -275,6 +274,10 @@ KX_Scene::~KX_Scene()
 
 	if (m_boundingBoxManager) {
 		delete m_boundingBoxManager;
+	}
+
+	if (m_worldinfo) {
+		delete m_worldinfo;
 	}
 
 #ifdef WITH_PYTHON
@@ -527,7 +530,6 @@ KX_GameObject *KX_Scene::AddNodeReplicaObject(SG_Node *node, KX_GameObject *game
 			break;
 		}
 	}
-	newobj->AddMeshUser();
 
 	// Logic cannot be replicated, until the whole hierarchy is replicated.
 	m_logicHierarchicalGameObjects.push_back(newobj);
@@ -1395,11 +1397,6 @@ void KX_Scene::UpdateParents()
 	}
 }
 
-RAS_MaterialBucket *KX_Scene::FindBucket(RAS_IPolyMaterial *polymat, bool &bucketCreated)
-{
-	return m_bucketmanager->FindBucket(polymat, bucketCreated);
-}
-
 void KX_Scene::RenderBuckets(const std::vector<KX_GameObject *>& objects, RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratransform,
                              RAS_Rasterizer *rasty, RAS_OffScreen *offScreen)
 {
@@ -1599,14 +1596,26 @@ static void MergeScene_GameObject(KX_GameObject *gameobj, KX_Scene *to, KX_Scene
 			}
 		}
 	}
-	// If the object is a light, update it's scene.
-	if (gameobj->GetGameObjectType() == SCA_IObject::OBJ_LIGHT) {
-		static_cast<KX_LightObject *>(gameobj)->UpdateScene(to);
-	}
-
-	// All armatures should be in the animated object list to be umpdated.
-	if (gameobj->GetGameObjectType() == SCA_IObject::OBJ_ARMATURE) {
-		to->AddAnimatedObject(gameobj);
+	switch (gameobj->GetGameObjectType()) {
+		// If the object is a light, update it's scene.
+		case SCA_IObject::OBJ_LIGHT:
+		{
+			static_cast<KX_LightObject *>(gameobj)->UpdateScene(to);
+			break;
+		}
+		// All armatures should be in the animated object list to be umpdated.
+		case SCA_IObject::OBJ_ARMATURE:
+		{
+			to->AddAnimatedObject(gameobj);
+			break;
+		}
+		// Force recreation of text users to link them to the merged scene text material.
+		case SCA_IObject::OBJ_TEXT:
+		{
+			gameobj->RemoveMeshes();
+			gameobj->AddMeshUser();
+			break;
+		}
 	}
 
 	// Add the object to the scene's logic manager.
@@ -1631,9 +1640,10 @@ bool KX_Scene::MergeScene(KX_Scene *other)
 		return false;
 	}
 
-	m_bucketmanager->MergeBucketManager(other->GetBucketManager(), this);
+	m_bucketmanager->Merge(other->GetBucketManager(), this);
 	m_boundingBoxManager->Merge(other->GetBoundingBoxManager());
 	m_rendererManager->Merge(other->GetTextureRendererManager());
+	m_componentManager.Merge(other->GetPythonComponentManager());
 
 	for (KX_GameObject *gameobj : *other->GetObjectList()) {
 		MergeScene_GameObject(gameobj, this, other);

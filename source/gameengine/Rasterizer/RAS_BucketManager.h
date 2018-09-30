@@ -90,9 +90,9 @@ protected:
 	RAS_ManagerDownwardNode m_downwardNode;
 	RAS_ManagerUpwardNode m_upwardNode;
 
-	struct TextMaterial
+	struct TextData
 	{
-		RAS_IPolyMaterial *m_material;
+		RAS_MaterialBucket *m_bucket;
 		RAS_DisplayArrayBucket *m_arrayBucket;
 	} m_text;
 
@@ -101,24 +101,25 @@ public:
 	/** Initialize bucket manager and create material bucket for the text material.
 	 * \param textMaterial The material used to render texts.
 	 */
-	RAS_BucketManager(RAS_IPolyMaterial *textMaterial);
+	RAS_BucketManager(RAS_IMaterial *textMaterial);
 	virtual ~RAS_BucketManager();
 
 	void Renderbuckets(RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratrans, RAS_Rasterizer *rasty,
 			RAS_OffScreen *offScreen);
 
-	RAS_MaterialBucket *FindBucket(RAS_IPolyMaterial *material, bool &bucketCreated);
+	RAS_MaterialBucket *FindBucket(RAS_IMaterial *material, bool &bucketCreated);
 	RAS_DisplayArrayBucket *GetTextDisplayArrayBucket() const;
 
-	void ReloadMaterials(RAS_IPolyMaterial *material = nullptr);
+	void ReloadMaterials(RAS_IMaterial *material = nullptr);
 
 	// freeing scenes only
-	void RemoveMaterial(RAS_IPolyMaterial *mat);
+	void RemoveMaterial(RAS_IMaterial *mat);
 
 	// for merging
-	void MergeBucketManager(RAS_BucketManager *other, SCA_IScene *scene);
+	void Merge(RAS_BucketManager *other, SCA_IScene *scene);
 
 private:
+	void PrepareBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
 	void RenderBasicBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
 	void RenderSortedBuckets(RAS_Rasterizer *rasty, BucketType bucketType);
 };

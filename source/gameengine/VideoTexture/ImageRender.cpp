@@ -104,7 +104,7 @@ ImageRender::ImageRender(KX_Scene *scene, KX_Camera *camera, unsigned int width,
 	}
 	else {
 		type = GPU_HDR_NONE;
-		m_internalFormat = GL_RGBA8;
+		m_internalFormat = GL_RGBA12;
 	}
 
 	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
@@ -782,7 +782,7 @@ static int ImageMirror_init(PyObject *pySelf, PyObject *args, PyObject *kwds)
 		}
 
 		// locate the material in the mirror
-		RAS_IPolyMaterial *material = getMaterial(mirrorPtr, materialID);
+		RAS_IMaterial *material = getMaterial(mirrorPtr, materialID);
 		if (material == nullptr) {
 			THRWEXCP(MaterialNotAvail, S_OK);
 		}
@@ -854,7 +854,7 @@ static PyGetSetDef imageMirrorGetSets[] =
 
 
 // constructor
-ImageRender::ImageRender(KX_Scene *scene, KX_GameObject *observer, KX_GameObject *mirror, RAS_IPolyMaterial *mat, unsigned int width, unsigned int height, unsigned short samples, int hdr) :
+ImageRender::ImageRender(KX_Scene *scene, KX_GameObject *observer, KX_GameObject *mirror, RAS_IMaterial *mat, unsigned int width, unsigned int height, unsigned short samples, int hdr) :
 	ImageViewport(width, height),
 	m_render(false),
 	m_updateShadowBuffer(false),
@@ -878,7 +878,7 @@ ImageRender::ImageRender(KX_Scene *scene, KX_GameObject *observer, KX_GameObject
 	}
 	else {
 		type = GPU_HDR_NONE;
-		m_internalFormat = GL_RGBA8;
+		m_internalFormat = GL_RGBA12;
 	}
 
 	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
@@ -915,7 +915,7 @@ ImageRender::ImageRender(KX_Scene *scene, KX_GameObject *observer, KX_GameObject
 	// locate the vertex assigned to mat and do following calculation in mesh coordinates
 	for (KX_Mesh *mesh : mirror->GetMeshList()) {
 		for (RAS_MeshMaterial *meshmat : mesh->GetMeshMaterialList()) {
-			if (meshmat->GetBucket()->GetPolyMaterial() == mat) {
+			if (meshmat->GetBucket()->GetMaterial() == mat) {
 				RAS_DisplayArray *array = meshmat->GetDisplayArray();
 				for (unsigned int j = 0, indexCount = array->GetTriangleIndexCount(); j < indexCount; j += 3) {
 					float normal[3];

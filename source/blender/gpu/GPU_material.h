@@ -43,6 +43,7 @@ extern "C" {
 
 struct Image;
 struct ImageUser;
+struct Main;
 struct Material;
 struct Object;
 struct Image;
@@ -76,6 +77,8 @@ typedef enum GPUType {
 	GPU_MAT3 = 9,
 	GPU_MAT4 = 16,
 
+	GPU_INT = 17,
+
 	GPU_TEX2D = 1002,
 	GPU_SHADOW2D = 1003,
 	GPU_TEXCUBE = 1004,
@@ -101,11 +104,14 @@ typedef enum GPUBuiltin {
 	GPU_INSTANCING_MATRIX          = (1 << 15),
 	GPU_INSTANCING_INVERSE_MATRIX  = (1 << 16),
 	GPU_INSTANCING_COLOR           = (1 << 17),
-	GPU_INSTANCING_COLOR_ATTRIB    = (1 << 18),
-	GPU_INSTANCING_MATRIX_ATTRIB   = (1 << 19),
-	GPU_INSTANCING_POSITION_ATTRIB = (1 << 20),
-	GPU_TIME                       = (1 << 21),
-	GPU_OBJECT_INFO                = (1 << 22)
+	GPU_INSTANCING_LAYER           = (1 << 18),
+	GPU_INSTANCING_COLOR_ATTRIB    = (1 << 19),
+	GPU_INSTANCING_MATRIX_ATTRIB   = (1 << 20),
+	GPU_INSTANCING_POSITION_ATTRIB = (1 << 21),
+	GPU_INSTANCING_LAYER_ATTRIB    = (1 << 22),
+	GPU_TIME                       = (1 << 23),
+	GPU_OBJECT_INFO                = (1 << 24),
+	GPU_OBJECT_LAY                 = (1 << 25)
 } GPUBuiltin;
 
 typedef enum GPUOpenGLBuiltin {
@@ -127,6 +133,12 @@ typedef enum GPUBlendMode {
 	GPU_BLEND_ALPHA_SORT = 8,
 	GPU_BLEND_ALPHA_TO_COVERAGE = 16
 } GPUBlendMode;
+
+typedef enum GPUMaterialFlag {
+	GPU_MATERIAL_OPENSUBDIV = (1 << 0),
+	GPU_MATERIAL_INSTANCING = (1 << 1),
+	GPU_MATERIAL_NO_COLOR_MANAGEMENT = (1 << 2)
+} GPUMaterialFlag;
 
 typedef struct GPUNodeStack {
 	GPUType type;
@@ -172,14 +184,17 @@ typedef enum GPUDynamicType {
 	GPU_DYNAMIC_LAMP_DYNENERGY       = 5  | GPU_DYNAMIC_GROUP_LAMP,
 	GPU_DYNAMIC_LAMP_DYNCOL          = 6  | GPU_DYNAMIC_GROUP_LAMP,
 	GPU_DYNAMIC_LAMP_DYNSPOTSCALE    = 7  | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_DISTANCE        = 8  | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_ATT1            = 9  | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_ATT2            = 10 | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_SPOTSIZE        = 11 | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_SPOTBLEND       = 12 | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_COEFFCONST      = 13 | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_COEFFLIN        = 14 | GPU_DYNAMIC_GROUP_LAMP,
-	GPU_DYNAMIC_LAMP_COEFFQUAD       = 15 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_DYNVISI         = 8 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_DISTANCE        = 9  | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_ATT1            = 10  | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_ATT2            = 11 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_SPOTSIZE        = 12 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_SPOTBLEND       = 13 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_COEFFCONST      = 14 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_COEFFLIN        = 15 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_COEFFQUAD       = 16 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_CUTOFF          = 17 | GPU_DYNAMIC_GROUP_LAMP,
+	GPU_DYNAMIC_LAMP_RADIUS          = 18 | GPU_DYNAMIC_GROUP_LAMP,
 
 	GPU_DYNAMIC_SAMPLER_2DBUFFER     = 1  | GPU_DYNAMIC_GROUP_SAMPLER,
 	GPU_DYNAMIC_SAMPLER_2DIMAGE      = 2  | GPU_DYNAMIC_GROUP_SAMPLER,
@@ -234,7 +249,7 @@ typedef enum GPUDynamicType {
 
 GPUNodeLink *GPU_attribute(CustomDataType type, const char *name);
 GPUNodeLink *GPU_uniform(float *num);
-GPUNodeLink *GPU_dynamic_uniform(float *num, GPUDynamicType dynamictype, void *data);
+GPUNodeLink *GPU_dynamic_uniform(void *num, GPUDynamicType dynamictype, void *data);
 GPUNodeLink *GPU_select_uniform(float *num, GPUDynamicType dynamictype, void *data, struct Material *material);
 GPUNodeLink *GPU_image(struct Image *ima, struct ImageUser *iuser, bool is_data);
 GPUNodeLink *GPU_cube_map(struct Image *ima, struct ImageUser *iuser, bool is_data);
@@ -255,21 +270,22 @@ GPUBuiltin GPU_get_material_builtins(GPUMaterial *material);
 GPUBlendMode GPU_material_alpha_blend(GPUMaterial *material, const float obcol[4]);
 
 /* High level functions to create and use GPU materials */
-GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo);
+GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo, GPUMaterialFlag flags);
 
-GPUMaterial *GPU_material_from_blender(struct Scene *scene, struct Material *ma, bool use_opensubdiv, bool is_instancing);
-GPUMaterial *GPU_material_matcap(struct Scene *scene, struct Material *ma, bool use_opensubdiv);
+GPUMaterial *GPU_material_from_blender(struct Scene *scene, struct Material *ma, GPUMaterialFlag flags);
+GPUMaterial *GPU_material_matcap(struct Scene *scene, struct Material *ma, GPUMaterialFlag flags);
 void GPU_material_free(struct ListBase *gpumaterial);
 
-void GPU_materials_free(void);
+void GPU_materials_free(struct Main *bmain);
 
 bool GPU_lamp_visible(GPULamp *lamp, struct SceneRenderLayer *srl, struct Material *ma);
+void GPU_material_update_lamps(GPUMaterial *material, float viewmat[4][4], float viewinv[4][4]);
 void GPU_material_bind(
-        GPUMaterial *material, int oblay, int viewlay, double time, int mipmap,
+        GPUMaterial *material, int viewlay, double time, int mipmap,
         float viewmat[4][4], float viewinv[4][4], float cameraborder[4], bool scenelock);
 void GPU_material_bind_uniforms(
         GPUMaterial *material, float obmat[4][4], float viewmat[4][4], const float obcol[4],
-        float autobumpscale, GPUParticleInfo *pi, float object_info[3]);
+		int oblay, float autobumpscale, GPUParticleInfo *pi, float object_info[3]);
 void GPU_material_unbind(GPUMaterial *material);
 bool GPU_material_bound(GPUMaterial *material);
 struct Scene *GPU_material_scene(GPUMaterial *material);
@@ -399,7 +415,7 @@ void GPU_material_update_fvar_offset(GPUMaterial *gpu_material,
 
 /* Instancing material */
 bool GPU_material_use_instancing(GPUMaterial *material);
-void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffset, void *positionoffset, void *coloroffset, unsigned int stride);
+void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffset, void *positionoffset, void *coloroffset, void *layeroffset);
 
 #ifdef __cplusplus
 }

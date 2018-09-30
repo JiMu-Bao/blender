@@ -6,7 +6,7 @@
 #ifndef __KX_BLENDERMATERIAL_H__
 #define __KX_BLENDERMATERIAL_H__
 
-#include "RAS_IPolygonMaterial.h"
+#include "RAS_IMaterial.h"
 #include "BL_Texture.h"
 
 #include "EXP_Value.h"
@@ -21,20 +21,23 @@ struct Material;
 void KX_BlenderMaterial_Mathutils_Callback_Init(void);
 #endif
 
-class KX_BlenderMaterial : public EXP_Value, public RAS_IPolyMaterial
+class KX_BlenderMaterial : public EXP_Value, public RAS_IMaterial
 {
 	Py_Header
 
 public:
-	KX_BlenderMaterial(Material *mat, const std::string& name, int lightlayer);
+	KX_BlenderMaterial(Material *mat, const std::string& name, KX_Scene *scene);
 
 	virtual ~KX_BlenderMaterial();
 
+	virtual void Prepare(RAS_Rasterizer *rasty);
 	virtual void Activate(RAS_Rasterizer *rasty);
 	virtual void Desactivate(RAS_Rasterizer *rasty);
-	virtual void ActivateInstancing(RAS_Rasterizer *rasty, void *matrixoffset, void *positionoffset, void *coloroffset, unsigned int stride);
+	virtual void ActivateInstancing(RAS_Rasterizer *rasty, RAS_InstancingBuffer *buffer);
 	virtual void ActivateMeshSlot(RAS_MeshSlot *ms, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans);
 
+	void UpdateTextures();
+	void ApplyTextures();
 	void ActivateShaders(RAS_Rasterizer *rasty);
 
 	void ActivateBlenderShaders(RAS_Rasterizer *rasty);
@@ -49,11 +52,8 @@ public:
 	virtual SCA_IScene *GetScene() const;
 	virtual void ReloadMaterial();
 
-	/** Set scene owning this material and generate blender shader using
-	 * scene lights.
-	 * \param scene The scene material owner.
-	 */
-	void InitScene(KX_Scene *scene);
+	void ReplaceScene(KX_Scene *scene);
+	void InitShader();
 
 	static void EndFrame(RAS_Rasterizer *rasty);
 
@@ -62,6 +62,7 @@ public:
 						   float emit, float ambient, float alpha, float specalpha);
 
 	virtual const RAS_AttributeArray::AttribList GetAttribs(const RAS_Mesh::LayersInfo& layersInfo) const;
+	virtual RAS_InstancingBuffer::Attrib GetInstancingAttribs() const;
 
 	// Stuff for cvalue related things.
 	virtual std::string GetName();
@@ -110,7 +111,6 @@ private:
 	KX_Scene *m_scene;
 	bool m_userDefBlend;
 	RAS_Rasterizer::BlendFunc m_blendFunc[2];
-	int m_lightLayer;
 
 	struct {
 		float r, g, b, a;

@@ -86,9 +86,9 @@ typedef struct GPUFunction {
 } GPUFunction;
 
 /* Indices match the GPUType enum */
-static const char *GPU_DATATYPE_STR[17] = {
+static const char *GPU_DATATYPE_STR[18] = {
 	"", "float", "vec2", "vec3", "vec4",
-	NULL, NULL, NULL, NULL, "mat3", NULL, NULL, NULL, NULL, NULL, NULL, "mat4",
+	NULL, NULL, NULL, NULL, "mat3", NULL, NULL, NULL, NULL, NULL, NULL, "mat4", "int"
 };
 
 /* GLSL code parsing for finding function definitions.
@@ -172,7 +172,7 @@ static void gpu_parse_functions_string(GHash *hash, char *code)
 
 			/* test for type */
 			type = GPU_NONE;
-			for (i = 1; i <= 16; i++) {
+			for (i = 1; i <= 17; i++) {
 				if (GPU_DATATYPE_STR[i] && gpu_str_prefix(code, GPU_DATATYPE_STR[i])) {
 					type = i;
 					break;
@@ -416,16 +416,22 @@ const char *GPU_builtin_name(GPUBuiltin builtin)
 		return "varinstinvmat";
 	else if (builtin == GPU_INSTANCING_COLOR)
 		return "varinstcolor";
+	else if (builtin == GPU_INSTANCING_LAYER)
+		return "varinstlayer";
 	else if (builtin == GPU_INSTANCING_COLOR_ATTRIB)
 		return "ininstcolor";
 	else if (builtin == GPU_INSTANCING_MATRIX_ATTRIB)
 		return "ininstmatrix";
 	else if (builtin == GPU_INSTANCING_POSITION_ATTRIB)
 		return "ininstposition";
+	else if (builtin == GPU_INSTANCING_LAYER_ATTRIB)
+		return "ininstlayer";
 	else if (builtin == GPU_TIME)
 		return "unftime";
 	else if (builtin == GPU_OBJECT_INFO)
 		return "unfobjectinfo";
+	else if (builtin == GPU_OBJECT_LAY)
+		return "unfobjectlay";
 	else
 		return "";
 }
@@ -548,9 +554,17 @@ static int codegen_print_uniforms_functions(DynStr *ds, ListBase *nodes)
 							GPU_DATATYPE_STR[input->type], name);
 					}
 					else {
-						BLI_dynstr_appendf(ds, "%s %s %s;\n",
-							GLEW_VERSION_3_0 ? "in" : "varying",
-							GPU_DATATYPE_STR[input->type], name);
+						// GPU_INSTANCING_LAYER is an integer, it must be flat in GLSL.
+						if (input->builtin == GPU_INSTANCING_LAYER) {
+							BLI_dynstr_appendf(ds, "%s %s %s;\n",
+								GLEW_VERSION_3_0 ? "flat in" : "flat varying",
+								GPU_DATATYPE_STR[input->type], name);
+						}
+						else {
+							BLI_dynstr_appendf(ds, "%s %s %s;\n",
+								GLEW_VERSION_3_0 ? "in" : "varying",
+								GPU_DATATYPE_STR[input->type], name);
+						}
 					}
 				}
 			}
@@ -1085,8 +1099,13 @@ void GPU_pass_update_uniforms(GPUPass *pass)
 	/* pass dynamic inputs to opengl, others were removed */
 	for (input = inputs->first; input; input = input->next) {
 		if (!(input->ima || input->tex || input->prv || input->texptr)) {
-			GPU_shader_uniform_vector(shader, input->shaderloc, input->type, 1,
-				input->dynamicvec);
+			if (input->type == GPU_INT) {
+				GPU_shader_uniform_vector_int(shader, input->shaderloc, 1, 1, (int *)input->dynamicvec);
+			}
+			else {
+				GPU_shader_uniform_vector(shader, input->shaderloc, input->type, 1,
+					input->dynamicvec);
+			}
 		}
 	}
 }
@@ -1441,7 +1460,7 @@ GPUNodeLink *GPU_uniform(float *num)
 	return link;
 }
 
-GPUNodeLink *GPU_dynamic_uniform(float *num, GPUDynamicType dynamictype, void *data)
+GPUNodeLink *GPU_dynamic_uniform(void *num, GPUDynamicType dynamictype, void *data)
 {
 	GPUNodeLink *link = GPU_node_link_create();
 
@@ -1823,4 +1842,3 @@ void GPU_pass_free_nodes(ListBase *nodes)
 {
 	gpu_nodes_free(nodes);
 }
-
