@@ -434,6 +434,40 @@ GPUTexture *GPU_texture_from_blender(Image *ima, ImageUser *iuser, int textarget
 	return tex;
 }
 
+GPUTexture *GPU_texture_from_bindcode(int textarget, int bindcode)
+{
+	GPUTexture *tex = MEM_callocN(sizeof(GPUTexture), "GPUTexture");
+	tex->bindcode = bindcode;
+	tex->number = -1;
+	tex->refcount = 1;
+	tex->target = textarget;
+	tex->target_base = textarget;
+
+	if (!glIsTexture(tex->bindcode)) {
+		GPU_ASSERT_NO_GL_ERRORS("Texture Not Loaded");
+	}
+	else {
+		GLint w, h, border;
+
+		GLenum gettarget;
+
+		if (textarget == GL_TEXTURE_2D)
+			gettarget = GL_TEXTURE_2D;
+		else
+			gettarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+
+		glBindTexture(textarget, tex->bindcode);
+		glGetTexLevelParameteriv(gettarget, 0, GL_TEXTURE_WIDTH, &w);
+		glGetTexLevelParameteriv(gettarget, 0, GL_TEXTURE_HEIGHT, &h);
+		glGetTexLevelParameteriv(gettarget, 0, GL_TEXTURE_BORDER, &border);
+
+		tex->w = w - border;
+		tex->h = h - border;
+	}
+
+	return tex;
+}
+
 GPUTexture *GPU_texture_from_preview(PreviewImage *prv, int mipmap)
 {
 	GPUTexture *tex = prv->gputexture[0];
@@ -663,7 +697,7 @@ void GPU_invalid_tex_free(void)
 void GPU_texture_bind(GPUTexture *tex, int number)
 {
 	if (number >= GPU_max_textures()) {
-		fprintf(stderr, "Not enough texture slots.\n");
+		fprintf(stderr, "GPU_texture_bind: Not enough texture slots.\n");
 		return;
 	}
 
@@ -696,7 +730,7 @@ void GPU_texture_bind(GPUTexture *tex, int number)
 void GPU_texture_unbind(GPUTexture *tex)
 {
 	if (tex->number >= GPU_max_textures()) {
-		fprintf(stderr, "Not enough texture slots.\n");
+		fprintf(stderr, "GPU_texture_unbind: Not enough texture slots.\n");
 		return;
 	}
 
@@ -724,7 +758,7 @@ int GPU_texture_bound_number(GPUTexture *tex)
 void GPU_texture_filter_mode(GPUTexture *tex, bool compare, bool use_filter, bool mipmap)
 {
 	if (tex->number >= GPU_max_textures()) {
-		fprintf(stderr, "Not enough texture slots.\n");
+		fprintf(stderr, "GPU_texture_filter_mode: Not enough texture slots.\n");
 		return;
 	}
 
@@ -765,7 +799,7 @@ void GPU_texture_filter_mode(GPUTexture *tex, bool compare, bool use_filter, boo
 void GPU_texture_generate_mipmap(GPUTexture *tex)
 {
 	if (tex->number >= GPU_max_textures()) {
-		fprintf(stderr, "Not enough texture slots.\n");
+		fprintf(stderr, "GPU_texture_generate_mipmap: Not enough texture slots.\n");
 		return;
 	}
 

@@ -47,17 +47,16 @@ public:
 	/// Face view matrices in 3x3 matrices.
 	static const mt::mat3 faceViewMatrices3x3[NUM_FACES];
 
-	KX_CubeMap(EnvMap *env, KX_GameObject *viewpoint);
+	KX_CubeMap(MTex *mtex, KX_GameObject *viewpoint);
 	virtual ~KX_CubeMap();
 
 	virtual std::string GetName();
 
 	virtual void InvalidateProjectionMatrix();
-	virtual const mt::mat4& GetProjectionMatrix(RAS_Rasterizer *rasty, KX_Scene *scene, KX_Camera *sceneCamera,
-													const RAS_Rect& viewport, const RAS_Rect& area);
+	virtual mt::mat4 GetProjectionMatrix(RAS_Rasterizer *rasty, const KX_CameraRenderSchedule& cameraData);
 
-	virtual bool SetupCamera(KX_Camera *sceneCamera, KX_Camera *camera);
-	virtual bool SetupCameraFace(KX_Camera *camera, unsigned short index);
+	virtual LayerUsage EnsureLayers(int viewportCount);
+	virtual bool PrepareFace(const mt::mat4& sceneViewMat, unsigned short face, mt::mat3x4& camTrans);
 };
 
 #endif  // __KX_CUBEMAP_H__

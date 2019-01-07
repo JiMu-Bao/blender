@@ -121,7 +121,7 @@ protected:
 		 */
 		UniformInfo(const std::string& name, GPUShader *shader);
 
-		inline bool operator< (const UniformInfo& other)
+		inline bool operator< (const UniformInfo& other) const
 		{
 			return (nameHash < other.nameHash);
 		}
@@ -187,8 +187,8 @@ public:
 
 	void SetSampler(int loc, int unit);
 
-	void SetUniformfv(int location, int type, float *param, int size, unsigned int count, bool transpose = false);
-	void SetUniformiv(int location, int type, int *param, int size, unsigned int count, bool transpose = false);
+	void SetUniformfv(int location, int type, const float *param, int size, unsigned int count, bool transpose = false);
+	void SetUniformiv(int location, int type, const int *param, int size, unsigned int count, bool transpose = false);
 	int GetAttribLocation(const std::string& name);
 	void BindAttribute(const std::string& attr, int loc);
 

@@ -209,6 +209,7 @@ set(SRC
 	KX_RadarSensor.h
 	KX_RayCast.h
 	KX_RaySensor.h
+	KX_RenderSchedule.h
 	KX_AddObjectActuator.h
 	KX_DynamicActuator.h
 	KX_EndObjectActuator.h

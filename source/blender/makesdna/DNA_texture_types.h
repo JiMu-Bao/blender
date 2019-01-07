@@ -63,7 +63,9 @@ typedef struct MTex {
 
 	char projx, projy, projz, mapping;
 	char brush_map_mode, brush_angle_mode;
-	char pad[2];
+
+	short colorManagement;
+
 	float ofs[3], size[3], rot, random_angle;
 
 	short texflag, colormodel, pmapto, pmaptoneg;
@@ -99,7 +101,7 @@ typedef struct MTex {
 	float lodbias;
 
 	/* parallax */
-	short parflag, pad3;
+	short parflag, parallaxcomp;
 } MTex;
 
 #ifndef DNA_USHORT_FIX

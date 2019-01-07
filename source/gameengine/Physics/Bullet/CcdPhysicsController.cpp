@@ -58,7 +58,7 @@ float gLinearSleepingTreshold;
 float gAngularSleepingTreshold;
 
 CcdCharacter::CcdCharacter(CcdPhysicsController *ctrl, btMotionState *motionState,
-                           btPairCachingGhostObject *ghost, btConvexShape *shape, float stepHeight)
+                           btGhostObject *ghost, btConvexShape *shape, float stepHeight)
 	:btKinematicCharacterController(ghost, shape, stepHeight, btVector3(0.0f, 0.0f, 1.0f)),
 	m_ctrl(ctrl),
 	m_motionState(motionState),
@@ -155,6 +155,12 @@ void CcdCharacter::SetVelocity(const btVector3& vel, float time, bool local)
 	m_velocityTimeInterval = 0.0f;
 
 	setVelocityForTimeInterval(v, time);
+}
+
+void CcdCharacter::ReplaceShape(btConvexShape* shape)
+{
+	m_convexShape = shape;
+	m_ghostObject->setCollisionShape(m_convexShape);
 }
 
 void CcdCharacter::SetVelocity(const mt::vec3& vel, float time, bool local)
@@ -510,7 +516,7 @@ bool CcdPhysicsController::CreateCharacterController()
 		return false;
 	}
 
-	m_object = new btPairCachingGhostObject();
+	m_object = new btGhostObject();
 	m_object->setCollisionShape(m_collisionShape);
 	m_object->setCollisionFlags(btCollisionObject::CF_CHARACTER_OBJECT);
 
@@ -518,7 +524,7 @@ bool CcdPhysicsController::CreateCharacterController()
 	m_bulletMotionState->getWorldTransform(trans);
 	m_object->setWorldTransform(trans);
 
-	m_characterController = new CcdCharacter(this, m_bulletMotionState, (btPairCachingGhostObject *)m_object,
+	m_characterController = new CcdCharacter(this, m_bulletMotionState, (btGhostObject *)m_object,
 	                                         (btConvexShape *)m_collisionShape, m_cci.m_stepHeight);
 
 	m_characterController->setJumpSpeed(m_cci.m_jumpSpeed);
@@ -673,6 +679,10 @@ bool CcdPhysicsController::ReplaceControllerShape(btCollisionShape *newShape)
 		newSoftBody->setUserPointer(this);
 		// add the new softbody
 		world->addSoftBody(newSoftBody);
+	}
+
+	if (m_characterController) {
+		m_characterController->ReplaceShape(static_cast<btConvexShape *>(newShape));
 	}
 
 	return true;
@@ -1676,7 +1686,7 @@ bool CcdPhysicsController::IsPhysicsSuspended()
  */
 bool CcdPhysicsController::ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_Mesh *from_meshobj, bool dupli)
 {
-	if (m_shapeInfo->m_shapeType != PHY_SHAPE_MESH) {
+	if (!ELEM(m_shapeInfo->m_shapeType, PHY_SHAPE_MESH, PHY_SHAPE_POLYTOPE)) {
 		return false;
 	}
 
@@ -1699,9 +1709,15 @@ bool CcdPhysicsController::ReinstancePhysicsShape(KX_GameObject *from_gameobj, R
 	return true;
 }
 
-void CcdPhysicsController::ReplacePhysicsShape(PHY_IPhysicsController *phyctrl)
+bool CcdPhysicsController::ReplacePhysicsShape(PHY_IPhysicsController *phyctrl)
 {
 	CcdShapeConstructionInfo *shapeInfo = ((CcdPhysicsController *)phyctrl)->GetShapeInfo();
+
+	if (m_characterController && ELEM(shapeInfo->m_shapeType,
+			PHY_SHAPE_COMPOUND, PHY_SHAPE_PROXY, PHY_SHAPE_EMPTY, PHY_SHAPE_COMPOUND, PHY_SHAPE_MESH))
+	{
+		return false;
+	}
 
 	// switch shape info
 	m_shapeInfo->Release();
@@ -1711,6 +1727,8 @@ void CcdPhysicsController::ReplacePhysicsShape(PHY_IPhysicsController *phyctrl)
 	ReplaceControllerShape(nullptr);
 	// refresh to remove collision pair
 	m_cci.m_physicsEnv->RefreshCcdPhysicsController(this);
+
+	return true;
 }
 
 ///////////////////////////////////////////////////////////

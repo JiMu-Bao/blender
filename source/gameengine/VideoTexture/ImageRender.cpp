@@ -42,6 +42,7 @@
 
 #include "KX_Globals.h"
 #include "KX_Mesh.h"
+#include "KX_NodeRelationships.h"
 #include "DNA_scene_types.h"
 #include "RAS_OffScreen.h"
 #include "RAS_CameraData.h"
@@ -67,6 +68,12 @@ ExpDesc MirrorNormalInvalidDesc(MirrorNormalInvalid, "Cannot determine mirror pl
 ExpDesc MirrorHorizontalDesc(MirrorHorizontal, "Mirror is horizontal in local space");
 ExpDesc MirrorTooSmallDesc(MirrorTooSmall, "Mirror is too small");
 
+static const unsigned int formatTable[] = {
+	GL_RGBA8, // RAS_Rasterizer::RAS_HDR_NONE
+	GL_RGBA16F_ARB, // RAS_Rasterizer::RAS_HDR_HALF_FLOAT
+	GL_RGBA32F_ARB // RAS_Rasterizer::RAS_HDR_FULL_FLOAT
+};
+
 // constructor
 ImageRender::ImageRender(KX_Scene *scene, KX_Camera *camera, unsigned int width, unsigned int height, unsigned short samples, int hdr) :
 	ImageViewport(width, height),
@@ -75,7 +82,6 @@ ImageRender::ImageRender(KX_Scene *scene, KX_Camera *camera, unsigned int width,
 	m_done(false),
 	m_scene(scene),
 	m_camera(camera),
-	m_owncamera(false),
 	m_samples(samples),
 	m_finalOffScreen(nullptr),
 	m_sync(nullptr),
@@ -93,23 +99,12 @@ ImageRender::ImageRender(KX_Scene *scene, KX_Camera *camera, unsigned int width,
 	m_rasterizer = m_engine->GetRasterizer();
 	m_canvas = m_engine->GetCanvas();
 
-	GPUHDRType type;
-	if (hdr == RAS_Rasterizer::RAS_HDR_HALF_FLOAT) {
-		type = GPU_HDR_HALF_FLOAT;
-		m_internalFormat = GL_RGBA16F_ARB;
-	}
-	else if (hdr == RAS_Rasterizer::RAS_HDR_FULL_FLOAT) {
-		type = GPU_HDR_FULL_FLOAT;
-		m_internalFormat = GL_RGBA32F_ARB;
-	}
-	else {
-		type = GPU_HDR_NONE;
-		m_internalFormat = GL_RGBA12;
-	}
+	m_internalFormat = formatTable[hdr];
+	RAS_OffScreen::Attachment attachment{4, (RAS_Rasterizer::HdrType)hdr};
 
-	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, {attachment}, RAS_OffScreen::RAS_OFFSCREEN_CUSTOM));
 	if (m_samples > 0) {
-		m_blitOffScreen.reset(new RAS_OffScreen(m_width, m_height, 0, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+		m_blitOffScreen.reset(new RAS_OffScreen(m_width, m_height, 0, {attachment}, RAS_OffScreen::RAS_OFFSCREEN_CUSTOM));
 		m_finalOffScreen = m_blitOffScreen.get();
 	}
 	else {
@@ -120,10 +115,6 @@ ImageRender::ImageRender(KX_Scene *scene, KX_Camera *camera, unsigned int width,
 // destructor
 ImageRender::~ImageRender(void)
 {
-	if (m_owncamera) {
-		m_camera->Release();
-	}
-
 #ifdef WITH_GAMEENGINE_GPU_SYNC
 	if (m_sync) {
 		delete m_sync;
@@ -226,16 +217,21 @@ bool ImageRender::Render()
 
 	if (!m_render ||
 	    m_rasterizer->GetDrawingMode() != RAS_Rasterizer::RAS_TEXTURED ||   // no need for texture
-	    m_camera->GetViewport() ||        // camera must be inactive
-	    m_camera == m_scene->GetActiveCamera()) {
+	    (m_camera && (m_camera->UseViewport() ||        // camera must be inactive
+		 m_camera == m_scene->GetActiveCamera())))
+	{
 		// no need to compute texture in non texture rendering
 		return false;
 	}
 
 	if (m_updateShadowBuffer) {
-		m_engine->RenderShadowBuffers(m_scene);
+		const KX_TextureRenderScheduleList shadowSchedule = m_scene->ScheduleShadowsRender();
+		for (const KX_TextureRenderSchedule& textureSchedule : shadowSchedule) {
+			m_engine->RenderTexture(m_scene, textureSchedule);
+		}
 	}
 
+	mt::mat3x4 camtrans;
 	if (m_mirror) {
 		// mirror mode, compute camera frustum, position and orientation
 		// convert mirror position and normal in world space
@@ -257,7 +253,6 @@ bool ImageRender::Render()
 		}
 		// set camera world position = observerPos + normal * 2 * distance
 		mt::vec3 cameraWorldPos = observerWorldPos + (2.0f * observerDistance) * mirrorWorldZ;
-		m_camera->GetNode()->SetLocalPosition(cameraWorldPos);
 		// set camera orientation: z=normal, y=mirror_up in world space, x= y x z
 		mt::vec3 mirrorWorldY = mirrorObjWorldOri * m_mirrorY;
 		mt::vec3 mirrorWorldX = mirrorObjWorldOri * m_mirrorX;
@@ -265,8 +260,8 @@ bool ImageRender::Render()
 			mirrorWorldX[0], mirrorWorldY[0], mirrorWorldZ[0],
 			mirrorWorldX[1], mirrorWorldY[1], mirrorWorldZ[1],
 			mirrorWorldX[2], mirrorWorldY[2], mirrorWorldZ[2]);
-		m_camera->GetNode()->SetLocalOrientation(cameraWorldOri);
-		m_camera->GetNode()->UpdateWorldData();
+
+		camtrans = mt::mat3x4(cameraWorldOri, cameraWorldPos).Inverse();
 		// compute camera frustum:
 		//   get position of mirror relative to camera: offset = mirrorPos-cameraPos
 		mt::vec3 mirrorOffset = mirrorWorldPos - cameraWorldPos;
@@ -300,6 +295,9 @@ bool ImageRender::Render()
 		frustum.camnear = -mirrorOffset[2];
 		frustum.camfar = -mirrorOffset[2] + m_clip;
 	}
+	else {
+		camtrans = m_camera->GetWorldToCamera();
+	}
 
 	// The screen area that ImageViewport will copy is also the rendering zone
 	// bind the fbo and set the viewport to full size
@@ -315,14 +313,13 @@ bool ImageRender::Render()
 	m_scene->GetWorldInfo()->UpdateWorldSettings(m_rasterizer);
 	m_rasterizer->SetAuxilaryClientInfo(m_scene);
 
+	mt::mat4 projmat;
 	if (m_mirror) {
 		// frustum was computed above
 		// get frustum matrix and set projection matrix
-		const mt::mat4 projmat = m_rasterizer->GetFrustumMatrix(frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
-
-		m_camera->SetProjectionMatrix(projmat);
+		projmat = m_rasterizer->GetFrustumMatrix(frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
 	}
-	else if (!m_camera->hasValidProjectionMatrix()) {
+	else if (!m_camera->HasValidProjectionMatrix(RAS_Rasterizer::RAS_STEREO_LEFTEYE)) {
 		float lens = m_camera->GetLens();
 		float sensor_x = m_camera->GetSensorWidth();
 		float sensor_y = m_camera->GetSensorHeight();
@@ -333,7 +330,6 @@ bool ImageRender::Render()
 		float farfrust = m_camera->GetCameraFar();
 		float aspect_ratio = 1.0f;
 		Scene *blenderScene = m_scene->GetBlenderScene();
-		mt::mat4 projmat;
 
 		// compute the aspect ratio from frame blender scene settings so that render to texture
 		// works the same in Blender and in Blender player
@@ -372,16 +368,17 @@ bool ImageRender::Render()
 
 			projmat = m_rasterizer->GetFrustumMatrix(frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
 		}
-		m_camera->SetProjectionMatrix(projmat);
+		m_camera->SetProjectionMatrix(projmat, RAS_Rasterizer::RAS_STEREO_LEFTEYE);
+	}
+	else {
+		projmat = m_camera->GetProjectionMatrix(RAS_Rasterizer::RAS_STEREO_LEFTEYE);
 	}
 
-	m_rasterizer->SetProjectionMatrix(m_camera->GetProjectionMatrix());
+	m_rasterizer->SetProjectionMatrix(projmat);
 
-	mt::mat3x4 camtrans(m_camera->GetWorldToCamera());
-	mt::mat4 viewmat = mt::mat4::FromAffineTransform(camtrans);
+	const mt::mat4 viewmat = mt::mat4::FromAffineTransform(camtrans);
 
-	m_rasterizer->SetViewMatrix(viewmat, m_camera->NodeGetWorldScaling());
-	m_camera->SetModelviewMatrix(viewmat);
+	m_rasterizer->SetViewMatrix(viewmat);
 
 	// Render Background
 	if (m_scene->GetWorldInfo()) {
@@ -395,17 +392,18 @@ bool ImageRender::Render()
 		m_scene->GetWorldInfo()->setZenithColor(zen);
 	}
 
-	const std::vector<KX_GameObject *> objects = m_scene->CalculateVisibleMeshes(m_camera, 0);
+	const SG_Frustum camFrustum(projmat * viewmat);
+	const std::vector<KX_GameObject *> objects = m_scene->CalculateVisibleMeshes(camFrustum, 0);
 
 	m_engine->UpdateAnimations(m_scene);
 
-	m_scene->RenderBuckets(objects, RAS_Rasterizer::RAS_TEXTURED, camtrans, m_rasterizer, m_offScreen.get());
+	m_scene->RenderBuckets(objects, RAS_Rasterizer::RAS_TEXTURED, camtrans, 0, m_rasterizer, m_offScreen.get());
 
 	m_canvas->EndFrame();
 
 	// In case multisample is active, blit the FBO
 	if (m_samples > 0) {
-		m_offScreen->Blit(m_blitOffScreen.get(), true, true);
+		m_offScreen->Blit(m_blitOffScreen.get(), true);
 	}
 
 #ifdef WITH_GAMEENGINE_GPU_SYNC
@@ -442,7 +440,7 @@ void ImageRender::WaitSync()
 #endif
 
 	// this is needed to finalize the image if the target is a texture
-	m_finalOffScreen->MipmapTexture();
+	m_finalOffScreen->MipmapTextures();
 
 	// all rendered operation done and complete, invalidate render for next time
 	m_done = false;
@@ -465,7 +463,7 @@ static int ImageRender_init(PyObject *pySelf, PyObject *args, PyObject *kwds)
 	// camera object
 	PyObject *camera;
 
-	const RAS_Rect& rect = KX_GetActiveEngine()->GetCanvas()->GetWindowArea();
+	const RAS_Rect& rect = KX_GetActiveEngine()->GetCanvas()->GetArea();
 	int width = rect.GetWidth();
 	int height = rect.GetHeight();
 	int samples = 0;
@@ -732,7 +730,7 @@ static int ImageMirror_init(PyObject *pySelf, PyObject *args, PyObject *kwds)
 	// material of the mirror
 	short materialID = 0;
 
-	const RAS_Rect& rect = KX_GetActiveEngine()->GetCanvas()->GetWindowArea();
+	const RAS_Rect& rect = KX_GetActiveEngine()->GetCanvas()->GetArea();
 	int width = rect.GetWidth();
 	int height = rect.GetHeight();
 	int samples = 0;
@@ -867,23 +865,12 @@ ImageRender::ImageRender(KX_Scene *scene, KX_GameObject *observer, KX_GameObject
 	m_mirror(mirror),
 	m_clip(100.f)
 {
-	GPUHDRType type;
-	if (hdr == RAS_Rasterizer::RAS_HDR_HALF_FLOAT) {
-		type = GPU_HDR_HALF_FLOAT;
-		m_internalFormat = GL_RGBA16F_ARB;
-	}
-	else if (hdr == RAS_Rasterizer::RAS_HDR_FULL_FLOAT) {
-		type = GPU_HDR_FULL_FLOAT;
-		m_internalFormat = GL_RGBA32F_ARB;
-	}
-	else {
-		type = GPU_HDR_NONE;
-		m_internalFormat = GL_RGBA12;
-	}
+	m_internalFormat = formatTable[hdr];
+	RAS_OffScreen::Attachment attachment{4, (RAS_Rasterizer::HdrType)hdr};
 
-	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+	m_offScreen.reset(new RAS_OffScreen(m_width, m_height, m_samples, {attachment}, RAS_OffScreen::RAS_OFFSCREEN_CUSTOM));
 	if (m_samples > 0) {
-		m_blitOffScreen.reset(new RAS_OffScreen(m_width, m_height, 0, type, GPU_OFFSCREEN_RENDERBUFFER_DEPTH, nullptr, RAS_Rasterizer::RAS_OFFSCREEN_CUSTOM));
+		m_blitOffScreen.reset(new RAS_OffScreen(m_width, m_height, 0, {attachment}, RAS_OffScreen::RAS_OFFSCREEN_CUSTOM));
 		m_finalOffScreen = m_blitOffScreen.get();
 	}
 	else {
@@ -903,11 +890,7 @@ ImageRender::ImageRender(KX_Scene *scene, KX_GameObject *observer, KX_GameObject
 	float yaxis[3] = {0.f, 1.f, 0.f};
 	float mirrorMat[3][3];
 	float left, right, top, bottom, back;
-	// make sure this camera will delete its node
-	m_camera = new KX_Camera(scene, KX_Scene::m_callbacks, camdata, true);
-	m_camera->SetName("__mirror__cam__");
-	// don't add the camera to the scene object list, it doesn't need to be accessible
-	m_owncamera = true;
+
 	// retrieve rendering objects
 	m_engine = KX_GetActiveEngine();
 	m_rasterizer = m_engine->GetRasterizer();

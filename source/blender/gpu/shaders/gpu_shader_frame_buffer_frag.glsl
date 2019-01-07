@@ -38,31 +38,31 @@ void main()
 	if (stippleid == STIPPLE_ROW) {
 		int result = int(mod(gl_FragCoord.y, 2));
 		if (result != 0) {
-			gl_FragColor = texture2D(lefteyetex, co);
+			gl_FragData[0] = texture2D(lefteyetex, co);
 		}
 		else {
-			gl_FragColor = texture2D(righteyetex, co);
+			gl_FragData[0] = texture2D(righteyetex, co);
 		}
 	}
 	else if (stippleid == STIPPLE_COLUMN) {
 		int result = int(mod(gl_FragCoord.x, 2));
 		if (result == 0) {
-			gl_FragColor = texture2D(lefteyetex, co);
+			gl_FragData[0] = texture2D(lefteyetex, co);
 		}
 		else {
-			gl_FragColor = texture2D(righteyetex, co);
+			gl_FragData[0] = texture2D(righteyetex, co);
 		}
 	}
 #elif defined(ANAGLYPH)
-	gl_FragColor = vec4(texture2D(lefteyetex, co).r, texture2D(righteyetex, co).gb, 1.0);
+	gl_FragData[0] = vec4(texture2D(lefteyetex, co).r, texture2D(righteyetex, co).gb, 1.0);
 #else
-	gl_FragColor = texture2D(colortex, co);
+	gl_FragData[0] = texture2D(colortex, co);
 #  ifdef DEPTH
 	gl_FragDepth = texture2D(depthtex, co).x;
 #  endif
 #endif
 
 #ifdef COLOR_MANAGEMENT
-	linearrgb_to_srgb(gl_FragColor, gl_FragColor);
+	linearrgb_to_srgb(gl_FragData[0], gl_FragData[0]);
 #endif
 }

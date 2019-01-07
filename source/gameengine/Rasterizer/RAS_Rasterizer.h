@@ -115,6 +115,7 @@ public:
 	enum StereoEye {
 		RAS_STEREO_LEFTEYE = 0,
 		RAS_STEREO_RIGHTEYE,
+		RAS_STEREO_MAXEYE,
 	};
 
 	/**
@@ -199,20 +200,6 @@ public:
 		RAS_STENCIL_BUFFER_BIT = 0x8
 	};
 
-	enum OffScreenType {
-		RAS_OFFSCREEN_FILTER0,
-		RAS_OFFSCREEN_FILTER1,
-		RAS_OFFSCREEN_EYE_LEFT0,
-		RAS_OFFSCREEN_EYE_RIGHT0,
-		RAS_OFFSCREEN_EYE_LEFT1,
-		RAS_OFFSCREEN_EYE_RIGHT1,
-		RAS_OFFSCREEN_BLIT_DEPTH,
-
-		RAS_OFFSCREEN_CUSTOM,
-
-		RAS_OFFSCREEN_MAX,
-	};
-
 	enum HdrType {
 		RAS_HDR_NONE = 0,
 		RAS_HDR_HALF_FLOAT,
@@ -233,38 +220,7 @@ public:
 		RAS_SHADER_TO_SCREEN_MAX
 	};
 
-	/** Return the output frame buffer normally used for the input frame buffer
-	 * index in case of filters render.
-	 * \param index The input frame buffer, can be a non-filter frame buffer.
-	 * \return The output filter frame buffer.
-	 */
-	static OffScreenType NextFilterOffScreen(OffScreenType index);
-
-	/** Return the output frame buffer normally used for the input frame buffer
-	 * index in case of simple render.
-	 * \param index The input render frame buffer, can be a eye frame buffer.
-	 * \return The output render frame buffer.
-	 */
-	static OffScreenType NextRenderOffScreen(OffScreenType index);
-
 private:
-	class OffScreens
-	{
-	private:
-		std::unique_ptr<RAS_OffScreen> m_offScreens[RAS_OFFSCREEN_MAX];
-		unsigned int m_width;
-		unsigned int m_height;
-		int m_samples;
-		HdrType m_hdr;
-
-	public:
-		OffScreens();
-		~OffScreens();
-
-		void Update(RAS_ICanvas *canvas);
-		RAS_OffScreen *GetOffScreen(RAS_Rasterizer::OffScreenType type);
-	};
-
 	// All info used to compute the ray cast transform matrix.
 	struct RayCastTranform
 	{
@@ -325,9 +281,6 @@ private:
 	bool m_lastlighting;
 	void *m_lastauxinfo;
 	unsigned int m_numgllights;
-
-	/// Class used to manage off screens used by the rasterizer.
-	OffScreens m_offScreens;
 
 	DrawType m_drawingmode;
 	ShadowType m_shadowMode;
@@ -438,14 +391,6 @@ public:
 	 */
 	void DrawOverlayPlane();
 
-	/// Update dimensions of all off screens.
-	void UpdateOffScreens(RAS_ICanvas *canvas);
-
-	/** Return the corresponding off screen to off screen type.
-	 * \param type The off screen type to return.
-	 */
-	RAS_OffScreen *GetOffScreen(OffScreenType type);
-
 	/** Draw off screen without set viewport.
 	 * Used to copy the frame buffer object to another.
 	 * \param srcindex The input off screen index.
@@ -527,12 +472,14 @@ public:
 	/**
 	 * Get/Set viewport area
 	 */
+	void SetViewport(const RAS_Rect& area);
 	void SetViewport(int x, int y, int width, int height);
 	void GetViewport(int *rect);
 
 	/**
 	 * Set scissor mask
 	 */
+	void SetScissor(const RAS_Rect& area);
 	void SetScissor(int x, int y, int width, int height);
 
 	/**

@@ -36,7 +36,9 @@
 #include "RAS_MaterialBucket.h"
 #include "RAS_IMaterial.h"
 #include "RAS_Mesh.h"
+#include "RAS_MeshUser.h"
 #include "RAS_Deformer.h"
+#include "RAS_BatchGroup.h"
 #include "RAS_Rasterizer.h"
 #include "RAS_InstancingBuffer.h"
 #include "RAS_BucketManager.h"
@@ -254,6 +256,8 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 	RAS_IMaterial *material = materialData->m_material;
 	RAS_InstancingBuffer *buffer = m_nodeData.m_instancingBuffer;
 
+	const short matPasIndex = material->GetPassIndex();
+
 	// Bind the instancing buffer to work on it.
 	buffer->Realloc(nummeshslots);
 
@@ -265,7 +269,7 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 
 		const mt::mat3x4& trans = managerData->m_trans;
 		const mt::vec3 pnorm(trans[2], trans[5], trans[8]);
-		std::transform(m_activeMeshSlots.begin(), m_activeMeshSlots.end(), sortedMeshSlots.end(),
+		std::transform(m_activeMeshSlots.begin(), m_activeMeshSlots.end(), sortedMeshSlots.begin(),
 		               [&pnorm](RAS_MeshSlot *slot) {
 			return RAS_BucketManager::SortedMeshSlot(slot, pnorm);
 		});
@@ -277,11 +281,11 @@ void RAS_DisplayArrayBucket::RunInstancingNode(const RAS_DisplayArrayNodeTuple& 
 		}
 
 		// Fill the buffer with the sorted mesh slots.
-		buffer->Update(rasty, materialData->m_drawingMode, meshSlots);
+		buffer->Update(rasty, materialData->m_drawingMode, matPasIndex, meshSlots);
 	}
 	else {
 		// Fill the buffer with the original mesh slots.
-		buffer->Update(rasty, materialData->m_drawingMode, m_activeMeshSlots);
+		buffer->Update(rasty, materialData->m_drawingMode, matPasIndex, m_activeMeshSlots);
 	}
 
 	RAS_AttributeArrayStorage *attribStorage = m_nodeData.m_attribStorage;
@@ -321,6 +325,7 @@ void RAS_DisplayArrayBucket::RunBatchingNode(const RAS_DisplayArrayNodeTuple& tu
 	RAS_ManagerNodeData *managerData = tuple.m_managerData;
 	RAS_MaterialNodeData *materialData = tuple.m_materialData;
 
+	RAS_IMaterial *material = materialData->m_material;
 	const unsigned int nummeshslots = m_activeMeshSlots.size();
 
 	// We must use a int instead of unsigned size to match GLsizei type.
@@ -367,6 +372,11 @@ void RAS_DisplayArrayBucket::RunBatchingNode(const RAS_DisplayArrayNodeTuple& tu
 	/* It's a major issue of the batching : we can't manage face wise per object.
 	 * To be sure we don't use the old face wise we force it to true. */
 	rasty->SetFrontFace(true);
+
+	// Retrieve batch group from first active mesh slot.
+	RAS_BatchGroup *group = m_activeMeshSlots.front()->m_meshUser->GetBatchGroup();
+	// Use batch group reference mesh user for layer and object color.
+	material->ActivateMeshUser(group->GetReferenceMeshUser(), rasty, managerData->m_trans);
 
 	RAS_AttributeArrayStorage *attribStorage = m_nodeData.m_attribStorage;
 	attribStorage->BindPrimitives();

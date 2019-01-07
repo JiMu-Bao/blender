@@ -25,6 +25,9 @@
  */
 
 #include "KX_LibLoadStatus.h"
+
+#include "EXP_PythonCallBack.h"
+
 #include "PIL_time.h"
 
 KX_LibLoadStatus::KX_LibLoadStatus(BL_Converter *converter, KX_KetsjiEngine *engine, KX_Scene *merge_scene, const std::string& path)
@@ -57,14 +60,11 @@ void KX_LibLoadStatus::RunFinishCallback()
 {
 #ifdef WITH_PYTHON
 	if (m_finish_cb) {
-		PyObject *args = Py_BuildValue("(O)", GetProxy());
+		PyObject *args[] = {GetProxy()};
 
-		if (!PyObject_Call(m_finish_cb, args, nullptr)) {
-			PyErr_Print();
-			PyErr_Clear();
-		}
+		EXP_RunPythonCallback(m_finish_cb, args, 0, 1);
 
-		Py_DECREF(args);
+		Py_DECREF(args[0]);
 	}
 #endif
 }
@@ -88,24 +88,14 @@ KX_Scene *KX_LibLoadStatus::GetMergeScene() const
 	return m_mergescene;
 }
 
-const std::vector<KX_Scene *>& KX_LibLoadStatus::GetScenes() const
-{
-	return m_scenes;
-}
-
-void KX_LibLoadStatus::SetScenes(const std::vector<KX_Scene *>& scenes)
-{
-	m_scenes = scenes;
-}
-
-const std::vector<BL_SceneConverter>& KX_LibLoadStatus::GetSceneConverters() const
+std::vector<BL_SceneConverter>& KX_LibLoadStatus::GetSceneConverters()
 {
 	return m_sceneConvertes;
 }
 
-void KX_LibLoadStatus::AddSceneConverter(BL_SceneConverter&& converter)
+void KX_LibLoadStatus::AddSceneConverter(KX_Scene *scene, const BL_Resource::Library& libraryId)
 {
-	m_sceneConvertes.push_back(std::move(converter));
+	m_sceneConvertes.emplace_back(scene, libraryId);
 }
 
 bool KX_LibLoadStatus::IsFinished() const

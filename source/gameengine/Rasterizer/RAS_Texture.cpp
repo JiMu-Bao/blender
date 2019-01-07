@@ -23,6 +23,7 @@
  */
 
 #include "RAS_Texture.h"
+#include "RAS_TextureRenderer.h"
 
 #include "GPU_glew.h"
 
@@ -74,6 +75,13 @@ const std::array<int, 6>& RAS_Texture::GetCubeMapTargets()
 									  }};
 
 	return targets;
+}
+
+void RAS_Texture::ApplyRenderer(unsigned short viewportIndex)
+{
+	if (m_renderer) {
+		m_bindCode = m_renderer->GetBindCode(viewportIndex);
+	}
 }
 
 void RAS_Texture::DesactiveTextures()

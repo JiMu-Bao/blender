@@ -1329,7 +1329,6 @@ class INFO_MT_add(Menu):
         layout.menu("INFO_MT_lamp_add", icon='OUTLINER_OB_LAMP')
         layout.separator()
 
-        print(rd)
         if rd != "BLENDER_GAME":
             layout.operator_menu_enum("object.effector_add", "type", text="Force Field", icon='OUTLINER_OB_FORCE_FIELD')
             layout.separator()
@@ -3707,8 +3706,10 @@ class VIEW3D_PT_view3d_meshdisplay(Panel):
         col.label(text="Face Info:")
         col.prop(mesh, "show_extra_face_area", text="Area")
         col.prop(mesh, "show_extra_face_angle", text="Angle")
-        if context.user_preferences.view.show_developer_ui:
-            layout.prop(mesh, "show_extra_indices")
+        split = layout.split()
+        col = split.column()
+        col.label(text="Vertex Info:")
+        col.prop(mesh, "show_extra_indices", text="Index")
 
 
 class VIEW3D_PT_view3d_meshstatvis(Panel):

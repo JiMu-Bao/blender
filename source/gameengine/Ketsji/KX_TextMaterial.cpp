@@ -39,7 +39,7 @@ KX_TextMaterial::~KX_TextMaterial()
 {
 }
 
-void KX_TextMaterial::Prepare(RAS_Rasterizer *rasty)
+void KX_TextMaterial::Prepare(RAS_Rasterizer *rasty, unsigned short viewportIndex)
 {
 }
 
@@ -59,7 +59,7 @@ void KX_TextMaterial::DesactivateInstancing()
 {
 }
 
-void KX_TextMaterial::ActivateMeshSlot(RAS_MeshSlot *ms, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans)
+void KX_TextMaterial::ActivateMeshUser(RAS_MeshUser *meshUser, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans)
 {
 }
 

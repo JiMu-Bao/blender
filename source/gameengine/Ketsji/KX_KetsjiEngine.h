@@ -33,16 +33,18 @@
 #ifndef __KX_KETSJIENGINE_H__
 #define __KX_KETSJIENGINE_H__
 
-#include <string>
 #include "KX_TimeCategoryLogger.h"
+#include "KX_RenderSchedule.h"
 #include "EXP_Python.h"
 #include "KX_WorldInfo.h"
 #include "RAS_CameraData.h"
-#include "RAS_Rasterizer.h"
+#include "RAS_ICanvas.h"
 #include "RAS_DebugDraw.h"
 #include "SCA_IInputDevice.h" // For SCA_IInputDevice::SCA_EnumInputs.
 #include "CM_Clock.h"
+
 #include <vector>
+#include <string>
 
 struct TaskScheduler;
 class KX_Scene;
@@ -118,46 +120,14 @@ public:
 	};
 
 private:
-	struct CameraRenderData
+	struct FrameTimes
 	{
-		CameraRenderData(KX_Camera *rendercam, KX_Camera *cullingcam, const RAS_Rect& area, const RAS_Rect& viewport,
-				RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye);
-		CameraRenderData(const CameraRenderData& other);
-		~CameraRenderData();
-
-		/// Rendered camera, could be a temporary camera in case of stereo.
-		KX_Camera *m_renderCamera;
-		KX_Camera *m_cullingCamera;
-		RAS_Rect m_area;
-		RAS_Rect m_viewport;
-		RAS_Rasterizer::StereoMode m_stereoMode;
-		RAS_Rasterizer::StereoEye m_eye;
-	};
-
-	struct SceneRenderData
-	{
-		SceneRenderData(KX_Scene *scene);
-
-		KX_Scene *m_scene;
-		std::vector<CameraRenderData> m_cameraDataList;
-	};
-
-	/// Data used to render a frame.
-	struct FrameRenderData
-	{
-		FrameRenderData(RAS_Rasterizer::OffScreenType ofsType);
-
-		RAS_Rasterizer::OffScreenType m_ofsType;
-		std::vector<SceneRenderData> m_sceneDataList;
-	};
-
-	struct RenderData
-	{
-		RenderData(RAS_Rasterizer::StereoMode stereoMode, bool renderPerEye);
-
-		RAS_Rasterizer::StereoMode m_stereoMode;
-		bool m_renderPerEye;
-		std::vector<FrameRenderData> m_frameDataList;
+		// Number of frames to proceed.
+		int frames;
+		// Real duration of a frame.
+		double timestep;
+		// Scaled duration of a frame.
+		double framestep;
 	};
 
 	CM_Clock m_clock;
@@ -215,8 +185,8 @@ private:
 
 	std::string m_overrideSceneName;
 	RAS_CameraData m_overrideCamData;
-	mt::mat4 m_overrideCamProjMat;
-	mt::mat4 m_overrideCamViewMat;
+	mt::mat3 m_overrideCamOrientation;
+	mt::vec3 m_overrideCamPosition;
 
 	/// Categories for profiling display.
 	typedef enum {
@@ -282,16 +252,23 @@ private:
 	/// Update and return the projection matrix of a camera depending on the viewport.
 	mt::mat4 GetCameraProjectionMatrix(KX_Scene *scene, KX_Camera *cam, RAS_Rasterizer::StereoMode stereoMode,
 			RAS_Rasterizer::StereoEye eye, const RAS_Rect& viewport, const RAS_Rect& area) const;
-	CameraRenderData GetCameraRenderData(KX_Scene *scene, KX_Camera *camera, KX_Camera *overrideCullingCam, const RAS_Rect& displayArea,
-			RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye);
+	KX_CameraRenderSchedule ScheduleCameraRender(KX_Scene *scene, KX_Camera *camera, KX_Camera *overrideCullingCam,
+			const RAS_Rect& displayArea, RAS_Rasterizer::StereoMode stereoMode, RAS_Rasterizer::StereoEye eye,
+			unsigned short viewportIndex);
+	KX_FrameRenderSchedule ScheduleFrameRender(RAS_Rasterizer::StereoMode stereoMode, bool useStereo, bool renderPerEye, unsigned short index);
 	/// Compute frame render data per eyes (in case of stereo), scenes and camera.
-	RenderData GetRenderData();
+	KX_RenderSchedule ScheduleRender();
 
-	void RenderCamera(KX_Scene *scene, const CameraRenderData& cameraFrameData, RAS_OffScreen *offScreen, unsigned short pass, bool isFirstScene);
-	RAS_OffScreen *PostRenderScene(KX_Scene *scene, RAS_OffScreen *inputofs, RAS_OffScreen *targetofs);
+	/// Render scene along main off screen.
+	void RenderCamera(KX_Scene *scene, const KX_CameraRenderSchedule& cameraSchedule,
+			RAS_OffScreen *offScreen, unsigned short pass, bool isFirstScene);
+	/// Post render scene with filters and post draw call.
+	RAS_OffScreen *PostRenderScene(KX_Scene *scene, RAS_OffScreen *inputofs,
+			const KX_FrameRenderSchedule& frameSchedule, bool islastscene);
+
 	void RenderDebugProperties();
 	/// Debug draw cameras frustum of a scene.
-	void DrawDebugCameraFrustum(KX_Scene *scene, const CameraRenderData& cameraFrameData);
+	void DrawDebugCameraFrustum(KX_Scene *scene, const KX_CameraRenderSchedule& cameraSchedule);
 	/// Debug draw lights shadow frustum of a scene.
 	void DrawDebugShadowFrustum(KX_Scene *scene);
 
@@ -313,6 +290,8 @@ private:
 
 	void BeginFrame();
 	void EndFrame();
+
+	FrameTimes GetFrameTimes();
 
 public:
 	KX_KetsjiEngine();
@@ -357,7 +336,6 @@ public:
 	/// returns true if an update happened to indicate -> Render
 	bool NextFrame();
 	void Render();
-	void RenderShadowBuffers(KX_Scene *scene);
 
 	void StartEngine();
 	void StopEngine();
@@ -381,10 +359,14 @@ public:
 
 	void GetSceneViewport(KX_Scene *scene, KX_Camera *cam, const RAS_Rect& displayArea, RAS_Rect& area, RAS_Rect& viewport);
 
-	void EnableCameraOverride(const std::string& forscene, const mt::mat4& projmat, const mt::mat4& viewmat, const RAS_CameraData& camdata);
+	void EnableCameraOverride(const std::string& forscene, const mt::mat3& orientation,
+			const mt::vec3& position, const RAS_CameraData& camdata);
 
 	// Update animations for object in this scene
 	void UpdateAnimations(KX_Scene *scene);
+
+	/// Render scene along texture off screen.
+	void RenderTexture(KX_Scene *scene, const KX_TextureRenderSchedule& textureSchedule);
 
 	bool GetFlag(FlagType flag) const;
 	/// Enable or disable a set of flags.
@@ -495,9 +477,6 @@ public:
 
 	KX_Scene *CreateScene(const std::string& scenename);
 	KX_Scene *CreateScene(Scene *scene);
-
-	/// Fully convert a non-libloaded scene.
-	void ConvertScene(KX_Scene *scene);
 
 	GlobalSettings *GetGlobalSettings(void);
 	void SetGlobalSettings(GlobalSettings *gs);

@@ -8,6 +8,7 @@
 
 #include "RAS_IMaterial.h"
 #include "BL_Texture.h"
+#include "BL_Resource.h"
 
 #include "EXP_Value.h"
 
@@ -21,7 +22,7 @@ struct Material;
 void KX_BlenderMaterial_Mathutils_Callback_Init(void);
 #endif
 
-class KX_BlenderMaterial : public EXP_Value, public RAS_IMaterial
+class KX_BlenderMaterial : public EXP_Value, public BL_Resource, public RAS_IMaterial
 {
 	Py_Header
 
@@ -30,16 +31,20 @@ public:
 
 	virtual ~KX_BlenderMaterial();
 
-	virtual void Prepare(RAS_Rasterizer *rasty);
+	virtual void Prepare(RAS_Rasterizer *rasty, unsigned short viewportIndex);
 	virtual void Activate(RAS_Rasterizer *rasty);
 	virtual void Desactivate(RAS_Rasterizer *rasty);
 	virtual void ActivateInstancing(RAS_Rasterizer *rasty, RAS_InstancingBuffer *buffer);
-	virtual void ActivateMeshSlot(RAS_MeshSlot *ms, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans);
+	virtual void ActivateMeshUser(RAS_MeshUser *meshUser, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans);
 
-	void UpdateTextures();
-	void ApplyTextures();
+	/// Update material textures data and bind code.
+	void UpdateTextures(unsigned short viewportIndex);
+	/// Select bind code in shared texture for next rendering.
+	void SetTexturesBindCode();
+	/// Bind all textures.
+	void BindTextures();
+
 	void ActivateShaders(RAS_Rasterizer *rasty);
-
 	void ActivateBlenderShaders(RAS_Rasterizer *rasty);
 
 	const RAS_Rasterizer::BlendFunc *GetBlendFunc() const;
@@ -52,8 +57,9 @@ public:
 	virtual SCA_IScene *GetScene() const;
 	virtual void ReloadMaterial();
 
+	void InitTextures();
+
 	void ReplaceScene(KX_Scene *scene);
-	void InitShader();
 
 	static void EndFrame(RAS_Rasterizer *rasty);
 
@@ -122,8 +128,6 @@ private:
 		float ambient;
 		float specularalpha;
 	} m_savedData;
-
-	void InitTextures();
 
 	void ActivateGLMaterials(RAS_Rasterizer *rasty) const;
 

@@ -38,7 +38,7 @@
 #include "KX_PythonComponentManager.h"
 #include "KX_KetsjiEngine.h" // For KX_DebugOption.
 
-#include "SG_Node.h"
+#include "SG_Scene.h"
 #include "SG_Frustum.h"
 #include "SCA_IScene.h"
 
@@ -86,7 +86,7 @@ class RAS_2DFilterManager;
 struct Scene;
 struct TaskPool;
 
-class KX_Scene : public EXP_Value, public SCA_IScene
+class KX_Scene : public EXP_Value, public SCA_IScene, public SG_Scene
 {
 public:
 	enum DrawingCallbackType {
@@ -140,8 +140,6 @@ private:
 	std::vector<KX_GameObject *> m_euthanasyobjects;
 
 	EXP_ListValue<KX_GameObject> *m_objectlist;
-	/// All 'root' parents.
-	EXP_ListValue<KX_GameObject> *m_parentlist;
 	EXP_ListValue<KX_LightObject> *m_lightlist;
 	/// All objects that are not in the active layer.
 	EXP_ListValue<KX_GameObject> *m_inactivelist;
@@ -152,14 +150,6 @@ private:
 	EXP_ListValue<KX_Camera> *m_cameralist;
 	/// The list of fonts for this scene.
 	EXP_ListValue<KX_FontObject> *m_fontlist;
-
-	/**
-	 * List of nodes that needs scenegraph update
-	 * the Dlist is not object that must be updated
-	 * the Qlist is for objects that needs to be rescheduled
-	 * for updates after udpate is over (slow parent, bone parent).
-	 */
-	SG_QList m_sghead;
 
 	/// Various SCA managers used by the scene
 	SCA_LogicManager *m_logicmgr;
@@ -259,11 +249,15 @@ private:
 	bool m_isActivedHysteresis;
 	int m_lodHysteresisValue;
 
+	void RemoveNodeDestructObject(KX_GameObject *gameobj);
+	void RemoveObject(KX_GameObject *gameobj);
+	void RemoveDupliGroup(KX_GameObject *gameobj);
+	bool NewRemoveObject(KX_GameObject *gameobj);
+
 public:
 	KX_Scene(SCA_IInputDevice *inputDevice,
 	         const std::string& scenename,
 	         Scene *scene,
-			 RAS_ICanvas *canvas,
 			 KX_NetworkMessageManager *messageManager);
 	virtual ~KX_Scene();
 
@@ -271,15 +265,18 @@ public:
 	KX_TextureRendererManager *GetTextureRendererManager() const;
 	RAS_BoundingBoxManager *GetBoundingBoxManager() const;
 	void RenderBuckets(const std::vector<KX_GameObject *>& objects, RAS_Rasterizer::DrawType drawingMode,
-	                   const mt::mat3x4& cameratransform, RAS_Rasterizer *rasty, RAS_OffScreen *offScreen);
-	void RenderTextureRenderers(KX_TextureRendererManager::RendererCategory category, RAS_Rasterizer *rasty, RAS_OffScreen *offScreen,
-	                            KX_Camera *sceneCamera, const RAS_Rect& viewport, const RAS_Rect& area);
+			const mt::mat3x4& cameratransform, unsigned short viewportIndex,
+			RAS_Rasterizer *rasty, RAS_OffScreen *offScreen);
 
-	/// Update all transforms according to the scenegraph.
-	static bool KX_ScenegraphUpdateFunc(SG_Node *node, void *gameobj, void *scene);
-	static bool KX_ScenegraphRescheduleFunc(SG_Node *node, void *gameobj, void *scene);
-	/// SceneGraph transformation update.
-	void UpdateParents();
+	/// Update lights settings.
+	void UpdateLights(RAS_Rasterizer *rasty);
+	/// Return list of shadow schedulers.
+	std::vector<KX_TextureRenderSchedule> ScheduleShadowsRender();
+	/// Return list of texture renderer schedules.
+	std::vector<KX_TextureRenderSchedule> ScheduleTexturesRender(RAS_Rasterizer *rasty, const KX_SceneRenderSchedule& sceneData);
+
+	virtual SG_Object *ReplicateNodeObject(SG_Node *node, SG_Object *origObject);
+	virtual void DestructNodeObject(SG_Node *node, SG_Object *object);
 
 	void DupliGroupRecurse(KX_GameObject *groupobj, int level);
 	bool IsObjectInGroup(KX_GameObject *gameobj) const;
@@ -287,11 +284,10 @@ public:
 	KX_GameObject *AddReplicaObject(KX_GameObject *gameobj, KX_GameObject *locationobj, float lifespan = 0.0f);
 	KX_GameObject *AddNodeReplicaObject(SG_Node *node, KX_GameObject *gameobj);
 
-	void RemoveNodeDestructObject(KX_GameObject *gameobj);
-	void RemoveObject(KX_GameObject *gameobj);
-	void RemoveDupliGroup(KX_GameObject *gameobj);
+	/// Add an object to remove.
 	void DelayedRemoveObject(KX_GameObject *gameobj);
-	bool NewRemoveObject(KX_GameObject *gameobj);
+	/// Effectivly remove object added with DelayedRemoveObject
+	void RemoveEuthanasyObjects();
 
 	void AddAnimatedObject(KX_GameObject *gameobj);
 
@@ -307,7 +303,6 @@ public:
 
 	EXP_ListValue<KX_GameObject> *GetObjectList() const;
 	EXP_ListValue<KX_GameObject> *GetInactiveList() const;
-	EXP_ListValue<KX_GameObject> *GetRootParentList() const;
 	EXP_ListValue<KX_LightObject> *GetLightList() const;
 	EXP_ListValue<KX_Camera> *GetCameraList() const;
 	EXP_ListValue<KX_FontObject> *GetFontList() const;
@@ -354,7 +349,8 @@ public:
 	void SetWorldInfo(KX_WorldInfo *wi);
 	KX_WorldInfo *GetWorldInfo() const;
 
-	std::vector<KX_GameObject *> CalculateVisibleMeshes(KX_Camera *cam, int layer);
+	std::vector<KX_GameObject *> CalculateVisibleMeshes(KX_Camera *cam, RAS_Rasterizer::StereoEye eye, int layer);
+	std::vector<KX_GameObject *> CalculateVisibleMeshes(bool frustumCulling, const SG_Frustum& frustum, int layer);
 	std::vector<KX_GameObject *> CalculateVisibleMeshes(const SG_Frustum& frustum, int layer);
 
 	RAS_DebugDraw& GetDebugDraw();
@@ -375,6 +371,7 @@ public:
 
 	/// Update the mesh for objects based on level of detail settings
 	void UpdateObjectLods(KX_Camera *cam, const std::vector<KX_GameObject *>& objects);
+	void UpdateObjectLods(const mt::vec3& camPos, float lodFactor, const std::vector<KX_GameObject *>& objects);
 
 	// LoD Hysteresis functions
 	void SetLodHysteresis(bool active);

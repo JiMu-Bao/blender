@@ -438,7 +438,7 @@ struct CcdConstructionInfo {
 class btRigidBody;
 class btCollisionObject;
 class btSoftBody;
-class btPairCachingGhostObject;
+class btGhostObject;
 
 class CcdCharacter : public btKinematicCharacterController, public PHY_ICharacter
 {
@@ -449,7 +449,7 @@ private:
 	unsigned char m_maxJumps;
 
 public:
-	CcdCharacter(CcdPhysicsController *ctrl, btMotionState *motionState, btPairCachingGhostObject *ghost, btConvexShape *shape, float stepHeight);
+	CcdCharacter(CcdPhysicsController *ctrl, btMotionState *motionState, btGhostObject *ghost, btConvexShape *shape, float stepHeight);
 
 	virtual void updateAction(btCollisionWorld *collisionWorld, btScalar dt);
 
@@ -466,6 +466,9 @@ public:
 	const btVector3& getWalkDirection();
 
 	void SetVelocity(const btVector3& vel, float time, bool local);
+
+	/// Replace current convex shape.
+	void ReplaceShape(btConvexShape *shape);
 
 	// PHY_ICharacter interface
 	virtual void Jump()
@@ -857,7 +860,7 @@ public:
 	}
 
 	virtual bool ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_Mesh *from_meshobj, bool dupli = false);
-	virtual void ReplacePhysicsShape(PHY_IPhysicsController *phyctrl);
+	virtual bool ReplacePhysicsShape(PHY_IPhysicsController *phyctrl);
 };
 
 /// DefaultMotionState implements standard motionstate, using btTransform

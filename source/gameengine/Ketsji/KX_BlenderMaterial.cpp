@@ -115,10 +115,10 @@ KX_BlenderMaterial::KX_BlenderMaterial(Material *mat, const std::string& name, K
 	m_flag |= ((mat->mode2 & MA_CASTSHADOW) != 0) ? RAS_CASTSHADOW : 0;
 	m_flag |= ((mat->mode & MA_ONLYCAST) != 0) ? RAS_ONLYSHADOW : 0;
 
+	m_passIndex = mat->index;
+
 	m_blendFunc[0] = RAS_Rasterizer::RAS_ZERO;
 	m_blendFunc[1] = RAS_Rasterizer::RAS_ZERO;
-
-	InitTextures();
 }
 
 KX_BlenderMaterial::~KX_BlenderMaterial()
@@ -193,8 +193,20 @@ SCA_IScene *KX_BlenderMaterial::GetScene() const
 
 void KX_BlenderMaterial::ReloadMaterial()
 {
+	BLI_assert(m_scene);
+
 	if (m_blenderShader) {
+		// If shader exists reload it.
 		m_blenderShader->ReloadMaterial();
+	}
+	else {
+		// Create shader.
+		m_blenderShader = new BL_BlenderShader(m_scene, m_material, this);
+
+		if (!m_blenderShader->Ok()) {
+			delete m_blenderShader;
+			m_blenderShader = nullptr;
+		}
 	}
 }
 
@@ -216,26 +228,13 @@ void KX_BlenderMaterial::InitTextures()
 	}
 }
 
-void KX_BlenderMaterial::InitShader()
-{
-	BLI_assert(!m_blenderShader);
-	BLI_assert(m_scene);
-
-	m_blenderShader = new BL_BlenderShader(m_scene, m_material, this);
-
-	if (!m_blenderShader->Ok()) {
-		delete m_blenderShader;
-		m_blenderShader = nullptr;
-	}
-}
-
 void KX_BlenderMaterial::EndFrame(RAS_Rasterizer *rasty)
 {
 	rasty->SetAlphaBlend(GPU_BLEND_SOLID);
 	RAS_Texture::DesactiveTextures();
 }
 
-void KX_BlenderMaterial::UpdateTextures()
+void KX_BlenderMaterial::UpdateTextures(unsigned short viewportIndex)
 {
 	/** We make sure that all gpu textures are the same in material textures here
 	 * than in gpu material. This is dones in a separated loop because the texture
@@ -245,16 +244,29 @@ void KX_BlenderMaterial::UpdateTextures()
 		RAS_Texture *tex = m_textures[i];
 		if (tex && tex->Ok()) {
 			tex->CheckValidTexture();
+			tex->ApplyRenderer(viewportIndex);
 		}
 	}
 }
 
-void KX_BlenderMaterial::ApplyTextures()
+void KX_BlenderMaterial::SetTexturesBindCode()
 {
 	// for each enabled unit
 	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
-		if (m_textures[i] && m_textures[i]->Ok()) {
-			m_textures[i]->ActivateTexture(i);
+		RAS_Texture *tex = m_textures[i];
+		if (tex && tex->Ok()) {
+			tex->UpdateBindCode();
+		}
+	}
+}
+
+void KX_BlenderMaterial::BindTextures()
+{
+	// for each enabled unit
+	for (unsigned short i = 0; i < RAS_Texture::MaxUnits; i++) {
+		RAS_Texture *tex = m_textures[i];
+		if (tex && tex->Ok()) {
+			tex->ActivateTexture(i);
 		}
 	}
 }
@@ -265,7 +277,7 @@ void KX_BlenderMaterial::SetShaderData(RAS_Rasterizer *ras)
 
 	m_shader->ApplyShader();
 
-	ApplyTextures();
+	BindTextures();
 
 	if (!m_userDefBlend) {
 		ras->SetAlphaBlend(m_alphablend);
@@ -297,9 +309,12 @@ void KX_BlenderMaterial::ActivateBlenderShaders(RAS_Rasterizer *rasty)
 	SetBlenderShaderData(rasty);
 }
 
-void KX_BlenderMaterial::Prepare(RAS_Rasterizer *rasty)
+void KX_BlenderMaterial::Prepare(RAS_Rasterizer *rasty, unsigned short viewportIndex)
 {
-	UpdateTextures();
+	// Update textures bind code
+	UpdateTextures(viewportIndex);
+
+	// Update lights data (layer...).
 	if (m_blenderShader && m_blenderShader->Ok()) {
 		m_blenderShader->UpdateLights(rasty);
 	}
@@ -307,6 +322,10 @@ void KX_BlenderMaterial::Prepare(RAS_Rasterizer *rasty)
 
 void KX_BlenderMaterial::Activate(RAS_Rasterizer *rasty)
 {
+	/* Update the textures bind code at each material bind as each material texture
+	 * could use a unique bind code. */
+	SetTexturesBindCode();
+
 	if (m_shader && m_shader->Ok()) {
 		ActivateShaders(rasty);
 	}
@@ -366,16 +385,16 @@ bool KX_BlenderMaterial::UsesLighting() const
 	}
 }
 
-void KX_BlenderMaterial::ActivateMeshSlot(RAS_MeshSlot *ms, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans)
+void KX_BlenderMaterial::ActivateMeshUser(RAS_MeshUser *meshUser, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans)
 {
 	if (m_shader && m_shader->Ok()) {
-		m_shader->Update(rasty, ms);
+		m_shader->Update(rasty, meshUser);
 		m_shader->ApplyShader();
 		// Update OpenGL lighting builtins.
 		rasty->ProcessLighting(UsesLighting(), camtrans);
 	}
 	else if (m_blenderShader) {
-		m_blenderShader->Update(ms, rasty);
+		m_blenderShader->Update(meshUser, m_passIndex, rasty);
 
 		/* we do blend modes here, because they can change per object
 		 * with the same material due to obcolor/obalpha */
@@ -390,16 +409,14 @@ void KX_BlenderMaterial::ActivateMeshSlot(RAS_MeshSlot *ms, RAS_Rasterizer *rast
 
 void KX_BlenderMaterial::ActivateGLMaterials(RAS_Rasterizer *rasty) const
 {
-	if (m_shader || !m_blenderShader) {
-		rasty->SetSpecularity(m_material->specr * m_material->spec, m_material->specg * m_material->spec,
-		                      m_material->specb * m_material->spec, m_material->spec);
-		rasty->SetShinyness(((float)m_material->har) / 4.0f);
-		rasty->SetDiffuse(m_material->r * m_material->ref + m_material->emit, m_material->g * m_material->ref + m_material->emit,
-		                  m_material->b * m_material->ref + m_material->emit, 1.0f);
-		rasty->SetEmissive(m_material->r * m_material->emit, m_material->g * m_material->emit,
-		                   m_material->b * m_material->emit, 1.0f);
-		rasty->SetAmbient(m_material->amb);
-	}
+	rasty->SetSpecularity(m_material->specr * m_material->spec, m_material->specg * m_material->spec,
+	                      m_material->specb * m_material->spec, m_material->spec);
+	rasty->SetShinyness(((float)m_material->har) / 4.0f);
+	rasty->SetDiffuse(m_material->r * m_material->ref + m_material->emit, m_material->g * m_material->ref + m_material->emit,
+	                  m_material->b * m_material->ref + m_material->emit, 1.0f);
+	rasty->SetEmissive(m_material->r * m_material->emit, m_material->g * m_material->emit,
+	                   m_material->b * m_material->emit, 1.0f);
+	rasty->SetAmbient(m_material->amb);
 }
 
 void KX_BlenderMaterial::UpdateIPO(const mt::vec4 &rgba,
@@ -593,6 +610,7 @@ PyAttributeDef KX_BlenderMaterial::Attributes[] = {
 	EXP_PYATTRIBUTE_RW_FUNCTION("emit", KX_BlenderMaterial, pyattr_get_emit, pyattr_set_emit),
 	EXP_PYATTRIBUTE_RW_FUNCTION("ambient", KX_BlenderMaterial, pyattr_get_ambient, pyattr_set_ambient),
 	EXP_PYATTRIBUTE_RW_FUNCTION("specularAlpha", KX_BlenderMaterial, pyattr_get_specular_alpha, pyattr_set_specular_alpha),
+	EXP_PYATTRIBUTE_SHORT_RW("passIndex", 0, SHRT_MAX, false, KX_BlenderMaterial, m_passIndex),
 
 	EXP_PYATTRIBUTE_NULL //Sentinel
 };

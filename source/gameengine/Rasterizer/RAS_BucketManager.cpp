@@ -92,7 +92,8 @@ RAS_BucketManager::~RAS_BucketManager()
 	}
 }
 
-void RAS_BucketManager::PrepareBuckets(RAS_Rasterizer *rasty, RAS_BucketManager::BucketType bucketType)
+void RAS_BucketManager::PrepareBuckets(RAS_Rasterizer *rasty, unsigned short viewportIndex,
+		RAS_BucketManager::BucketType bucketType)
 {
 	if (m_nodeData.m_shaderOverride) {
 		return;
@@ -100,13 +101,13 @@ void RAS_BucketManager::PrepareBuckets(RAS_Rasterizer *rasty, RAS_BucketManager:
 
 	for (RAS_MaterialBucket *bucket : m_buckets[bucketType]) {
 		RAS_IMaterial *mat = bucket->GetMaterial();
-		mat->Prepare(rasty);
+		mat->Prepare(rasty, viewportIndex);
 	}
 }
 
 void RAS_BucketManager::RenderSortedBuckets(RAS_Rasterizer *rasty, RAS_BucketManager::BucketType bucketType)
 {
-	PrepareBuckets(rasty, bucketType);
+	PrepareBuckets(rasty, m_nodeData.m_viewportIndex, bucketType);
 
 	BucketList& solidBuckets = m_buckets[bucketType];
 	RAS_UpwardTreeLeafs leafs;
@@ -143,7 +144,7 @@ void RAS_BucketManager::RenderSortedBuckets(RAS_Rasterizer *rasty, RAS_BucketMan
 
 void RAS_BucketManager::RenderBasicBuckets(RAS_Rasterizer *rasty, RAS_BucketManager::BucketType bucketType)
 {
-	PrepareBuckets(rasty, bucketType);
+	PrepareBuckets(rasty, m_nodeData.m_viewportIndex, bucketType);
 
 	RAS_UpwardTreeLeafs leafs;
 	for (RAS_MaterialBucket *bucket : m_buckets[bucketType]) {
@@ -156,12 +157,13 @@ void RAS_BucketManager::RenderBasicBuckets(RAS_Rasterizer *rasty, RAS_BucketMana
 	}
 }
 
-void RAS_BucketManager::Renderbuckets(RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratrans, RAS_Rasterizer *rasty,
-                                      RAS_OffScreen *offScreen)
+void RAS_BucketManager::Renderbuckets(RAS_Rasterizer::DrawType drawingMode, const mt::mat3x4& cameratrans, 
+		unsigned short viewportIndex, RAS_Rasterizer *rasty, RAS_OffScreen *offScreen)
 {
 	m_nodeData.m_rasty = rasty;
 	m_nodeData.m_trans = cameratrans;
 	m_nodeData.m_drawingMode = drawingMode;
+	m_nodeData.m_viewportIndex = viewportIndex;
 
 	switch (drawingMode) {
 		case RAS_Rasterizer::RAS_SHADOW:
@@ -378,22 +380,23 @@ void RAS_BucketManager::ReloadMaterials(RAS_IMaterial *mat)
 	}
 }
 
-/* frees the bucket, only used when freeing scenes */
 void RAS_BucketManager::RemoveMaterial(RAS_IMaterial *mat)
 {
-	for (unsigned short i = 0; i < NUM_BUCKET_TYPE; ++i) {
-		BucketList& buckets = m_buckets[i];
-		for (BucketList::iterator it = buckets.begin(); it != buckets.end(); ) {
-			RAS_MaterialBucket *bucket = *it;
-			if (mat == bucket->GetMaterial()) {
-				it = buckets.erase(it);
-				if (i == ALL_BUCKET) {
-					delete bucket;
-				}
+	BucketList& allBuckets = m_buckets[ALL_BUCKET];
+	for (BucketList::iterator it = allBuckets.begin(); it != allBuckets.end();) {
+		RAS_MaterialBucket *bucket = *it;
+		// Find the bucket in ALL_BUCKET list.
+		if (mat == bucket->GetMaterial()) {
+			// Iterate over all bucket list excepted ALL_BUCKET and remove the bucket.
+			for (unsigned short i = 0; i < ALL_BUCKET; ++i) {
+				CM_ListRemoveIfFound(m_buckets[i], bucket);
 			}
-			else {
-				++it;
-			}
+			// Remove the bucket from ALL_BUCKET and destruct it.
+			it = allBuckets.erase(it);
+			delete bucket;
+		}
+		else {
+			++it;
 		}
 	}
 }

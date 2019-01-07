@@ -31,13 +31,11 @@
 #include "RAS_Rasterizer.h"
 #include "RAS_Texture.h"
 
-KX_PlanarMap::KX_PlanarMap(EnvMap *env, KX_GameObject *viewpoint)
-	:KX_TextureRenderer(env, viewpoint),
+KX_PlanarMap::KX_PlanarMap(MTex *mtex, KX_GameObject *viewpoint)
+	:KX_TextureRenderer(mtex, viewpoint, LAYER_UNIQUE),
 	m_normal(mt::axisZ3)
 {
-	m_faces.emplace_back(RAS_Texture::GetTexture2DType());
-
-	switch (env->mode) {
+	switch (m_mtex->tex->env->mode) {
 		case ENVMAP_REFLECTION:
 		{
 			m_type = REFLECTION;
@@ -74,91 +72,53 @@ void KX_PlanarMap::ComputeClipPlane(const mt::vec3& mirrorObjWorldPos, const mt:
 
 void KX_PlanarMap::InvalidateProjectionMatrix()
 {
-	m_projections.clear();
 }
 
-const mt::mat4& KX_PlanarMap::GetProjectionMatrix(RAS_Rasterizer *rasty, KX_Scene *scene, KX_Camera *sceneCamera,
-                                                  const RAS_Rect& viewport, const RAS_Rect& area)
+mt::mat4 KX_PlanarMap::GetProjectionMatrix(RAS_Rasterizer *rasty, const KX_CameraRenderSchedule& cameraData)
 {
-	std::unordered_map<KX_Camera *, mt::mat4>::const_iterator projectionit = m_projections.find(sceneCamera);
-	if (projectionit != m_projections.end()) {
-		return projectionit->second;
-	}
+	// Change the near and far clip plane in current camera.
+	RAS_FrameFrustum frustum = cameraData.m_frameFrustum;
+	frustum.camnear = m_clipStart;
+	frustum.camfar = m_clipEnd;
 
-	mt::mat4& projection = m_projections[sceneCamera];
-
-	RAS_FrameFrustum frustum;
-	const bool orthographic = !sceneCamera->GetCameraData()->m_perspective;
-
-	if (orthographic) {
-		RAS_FramingManager::ComputeOrtho(
-			scene->GetFramingType(),
-			area,
-			viewport,
-			sceneCamera->GetScale(),
-			m_clipStart,
-			m_clipEnd,
-			sceneCamera->GetSensorFit(),
-			sceneCamera->GetShiftHorizontal(),
-			sceneCamera->GetShiftVertical(),
-			frustum);
+	// Compute projection with modified frame frustum.
+	if (cameraData.m_perspective) {
+		return rasty->GetFrustumMatrix(cameraData.m_stereoMode, cameraData.m_eye, cameraData.m_focalLength,
+				frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
 	}
 	else {
-		RAS_FramingManager::ComputeFrustum(
-			scene->GetFramingType(),
-			area,
-			viewport,
-			sceneCamera->GetLens(),
-			sceneCamera->GetSensorWidth(),
-			sceneCamera->GetSensorHeight(),
-			sceneCamera->GetSensorFit(),
-			sceneCamera->GetShiftHorizontal(),
-			sceneCamera->GetShiftVertical(),
-			m_clipStart,
-			m_clipEnd,
-			frustum);
-	}
-
-	if (!sceneCamera->GetViewport()) {
-		const float camzoom = sceneCamera->GetZoom();
-		frustum.x1 *= camzoom;
-		frustum.x2 *= camzoom;
-		frustum.y1 *= camzoom;
-		frustum.y2 *= camzoom;
-	}
-
-	if (orthographic) {
-		projection = rasty->GetOrthoMatrix(
-			frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
-	}
-	else {
-		projection = rasty->GetFrustumMatrix(frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
-	}
-
-	return projection;
-}
-
-void KX_PlanarMap::BeginRenderFace(RAS_Rasterizer *rasty)
-{
-	KX_TextureRenderer::BeginRenderFace(rasty);
-
-	if (m_type == REFLECTION) {
-		rasty->SetInvertFrontFace(true);
-		rasty->EnableClipPlane(0, m_clipPlane);
-	}
-	else {
-		rasty->EnableClipPlane(0, -m_clipPlane);
+		return rasty->GetOrthoMatrix(
+				frustum.x1, frustum.x2, frustum.y1, frustum.y2, frustum.camnear, frustum.camfar);
 	}
 }
 
-void KX_PlanarMap::EndRenderFace(RAS_Rasterizer *rasty)
+void KX_PlanarMap::BeginRenderFace(RAS_Rasterizer* rasty, unsigned short layer, unsigned short face)
 {
-	if (m_type == REFLECTION) {
-		rasty->SetInvertFrontFace(false);
+	RAS_TextureRenderer::BeginRender(rasty, layer);
+	RAS_TextureRenderer::BeginRenderFace(rasty, layer, face);
+
+	switch (m_type) {
+		case REFLECTION:
+		{
+			rasty->EnableClipPlane(0, m_clipPlane);
+			break;
+		}
+		case REFRACTION:
+		{
+			rasty->EnableClipPlane(0, -m_clipPlane);
+			break;
+		}
 	}
+
+	rasty->SetInvertFrontFace((m_type == REFLECTION));
+}
+
+void KX_PlanarMap::EndRenderFace(RAS_Rasterizer* rasty, unsigned short layer, unsigned short face)
+{
+	rasty->SetInvertFrontFace(false);
 	rasty->DisableClipPlane(0);
 
-	KX_TextureRenderer::EndRenderFace(rasty);
+	RAS_TextureRenderer::EndRender(rasty, layer);
 }
 
 const mt::vec3& KX_PlanarMap::GetNormal() const
@@ -171,15 +131,30 @@ void KX_PlanarMap::SetNormal(const mt::vec3& normal)
 	m_normal = normal.Normalized();
 }
 
-bool KX_PlanarMap::SetupCamera(KX_Camera *sceneCamera, KX_Camera *camera)
+RAS_TextureRenderer::LayerUsage KX_PlanarMap::EnsureLayers(int viewportCount)
 {
-	KX_GameObject *mirror = GetViewpointObject();
+	// Create as much layers as viewports in the scene, cause the rendering depends on the camera transform.
+	const unsigned short size = m_layers.size();
+	if (size < viewportCount) {
+		m_layers.resize(viewportCount);
+		for (unsigned short i = size; i < viewportCount; ++i) {
+			m_layers[i] = Layer({RAS_Texture::GetTexture2DType()}, RAS_Texture::GetTexture2DType(), 
+					m_mtex->tex->ima, m_useMipmap, m_useLinear);
+		}
+	}
 
+	return m_layerUsage;
+}
+
+bool KX_PlanarMap::PrepareFace(const mt::mat4& sceneViewMat, unsigned short face, mt::mat3x4& camTrans)
+{
 	// Compute camera position and orientation.
-	const mt::mat3& mirrorObjWorldOri = mirror->NodeGetWorldOrientation();
-	const mt::vec3& mirrorObjWorldPos = mirror->NodeGetWorldPosition();
+	const mt::mat3& mirrorObjWorldOri = m_viewpointObject->NodeGetWorldOrientation();
+	const mt::vec3& mirrorObjWorldPos = m_viewpointObject->NodeGetWorldPosition();
+	const mt::mat4 cameraMat = sceneViewMat.Inverse();
 
-	mt::vec3 cameraWorldPos = sceneCamera->NodeGetWorldPosition();
+	// Use the position and orientation from the view matrix to take care of stereo.
+	mt::vec3 cameraWorldPos = cameraMat.TranslationVector3D();
 
 	// Update clip plane to possible new normal or viewpoint object.
 	ComputeClipPlane(mirrorObjWorldPos, mirrorObjWorldOri);
@@ -195,7 +170,7 @@ bool KX_PlanarMap::SetupCamera(KX_Camera *sceneCamera, KX_Camera *camera)
 	}
 
 	const mt::mat3 mirrorObjWorldOriInverse = mirrorObjWorldOri.Inverse();
-	mt::mat3 cameraWorldOri = sceneCamera->NodeGetWorldOrientation();
+	mt::mat3 cameraWorldOri = mt::mat3::ToRotationMatrix(cameraMat);
 
 	static const mt::mat3 unmir(1.0f, 0.0f, 0.0f,
 	                            0.0f, 1.0f, 0.0f,
@@ -211,14 +186,8 @@ bool KX_PlanarMap::SetupCamera(KX_Camera *sceneCamera, KX_Camera *camera)
 	}
 
 	// Set render camera position and orientation.
-	camera->NodeSetWorldPosition(cameraWorldPos);
-	camera->NodeSetGlobalOrientation(cameraWorldOri);
+	camTrans = mt::mat3x4(cameraWorldOri, cameraWorldPos);
 
-	return true;
-}
-
-bool KX_PlanarMap::SetupCameraFace(KX_Camera *camera, unsigned short index)
-{
 	return true;
 }
 

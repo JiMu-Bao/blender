@@ -1391,7 +1391,7 @@ static void backdrawview3d(Scene *scene, wmWindow *win, ARegion *ar, View3D *v3d
 		}
 
 		if (!rv3d->gpuoffscreen) {
-			rv3d->gpuoffscreen = GPU_offscreen_create(w, h, 0, GPU_HDR_NONE, GPU_OFFSCREEN_DEPTH_COMPARE, error);
+			rv3d->gpuoffscreen = GPU_offscreen_create(w, h, 0, error);
 
 			if (!rv3d->gpuoffscreen)
 				fprintf(stderr, "Failed to create offscreen selection buffer for multisample: %s\n", error);
@@ -2647,8 +2647,9 @@ static void gpu_update_lamps_shadows_world(Main *bmain, Scene *scene, View3D *v3
 	 * don't work correct since it's replacing object matrices */
 	for (shadow = shadows.first; shadow; shadow = shadow->next) {
 		/* this needs to be done better .. */
-		float viewmat[4][4], winmat[4][4];
-		int drawtype, lay, winsize, flag2 = v3d->flag2;
+		float (*viewmat)[4] = GPU_lamp_get_viewmat(shadow->lamp), (*winmat)[4] = GPU_lamp_get_winmat(shadow->lamp);
+		int drawtype, lay, flag2 = v3d->flag2;
+		int winsize = GPU_lamp_shadow_size(shadow->lamp);
 		ARegion ar = {NULL};
 		RegionView3D rv3d = {{{0}}};
 		bool vsm = GPU_lamp_shadow_buffer_type(shadow->lamp) == LA_SHADMAP_VARIANCE;
@@ -2664,7 +2665,8 @@ static void gpu_update_lamps_shadows_world(Main *bmain, Scene *scene, View3D *v3
 		if (vsm) {
 			GPU_shader_bind(GPU_shader_get_builtin_shader(GPU_SHADER_VSM_STORE));
 		}
-		GPU_lamp_shadow_buffer_bind(shadow->lamp, viewmat, &winsize, winmat);
+		GPU_lamp_update_buffer_mats(shadow->lamp);
+		GPU_lamp_shadow_buffer_bind(shadow->lamp);
 
 		ar.regiondata = &rv3d;
 		ar.regiontype = RGN_TYPE_WINDOW;
@@ -3337,7 +3339,7 @@ ImBuf *ED_view3d_draw_offscreen_imbuf(
 
 	if (own_ofs) {
 		/* bind */
-		ofs = GPU_offscreen_create(sizex, sizey, use_full_sample ? 0 : samples, GPU_HDR_NONE, GPU_OFFSCREEN_DEPTH_COMPARE, err_out);
+		ofs = GPU_offscreen_create(sizex, sizey, use_full_sample ? 0 : samples, err_out);
 		if (ofs == NULL) {
 			return NULL;
 		}

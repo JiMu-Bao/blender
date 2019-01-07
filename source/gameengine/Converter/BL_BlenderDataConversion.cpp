@@ -112,6 +112,7 @@
 #include "BL_ConvertProperties.h"
 #include "BL_ConvertObjectInfo.h"
 #include "BL_ArmatureObject.h"
+#include "BL_ActionData.h"
 
 #include "LA_SystemCommandLine.h"
 
@@ -524,7 +525,10 @@ KX_Mesh *BL_ConvertMesh(Mesh *me, Object *blenderobj, KX_Scene *scene, BL_SceneC
 
 	dm->release(dm);
 
+	// Needed for python scripting.
+	scene->GetLogicManager()->RegisterMeshName(meshobj->GetName(), meshobj);
 	converter.RegisterGameMesh(meshobj, me);
+
 	return meshobj;
 }
 
@@ -729,6 +733,23 @@ RAS_Deformer *BL_ConvertDeformer(KX_GameObject *object, KX_Mesh *meshobj)
 	return deformer;
 }
 
+BL_ActionData *BL_ConvertAction(bAction *action, KX_Scene *scene, BL_SceneConverter& converter)
+{
+	BL_ActionData *data = new BL_ActionData(action);
+	converter.RegisterActionData(data);
+	scene->GetLogicManager()->RegisterActionName(action->id.name + 2, data);
+
+	return data;
+}
+
+void BL_ConvertActions(KX_Scene *scene, Main *maggie, BL_SceneConverter& converter)
+{
+	// Convert all actions and register.
+	for (bAction *act = (bAction *)maggie->action.first; act; act = (bAction *)act->id.next) {
+		BL_ConvertAction(act, scene, converter);
+	}
+}
+
 static void BL_CreateGraphicObjectNew(KX_GameObject *gameobj, KX_Scene *kxscene, bool isActive, PHY_IPhysicsEnvironment *phyEnv)
 {
 #ifdef WITH_BULLET
@@ -888,7 +909,7 @@ static KX_LightObject *BL_GameLightFromBlenderLamp(Lamp *la, unsigned int layerf
 		}
 	}
 
-	KX_LightObject *gamelight = new KX_LightObject(kxscene, KX_Scene::m_callbacks, rasterizer, lightobj);
+	KX_LightObject *gamelight = new KX_LightObject(kxscene, rasterizer, lightobj);
 
 	gamelight->SetShowShadowFrustum((la->mode & LA_SHOW_SHADOW_BOX) && (la->mode & LA_SHAD_RAY));
 
@@ -899,9 +920,8 @@ static KX_Camera *BL_GameCameraFromBlenderCamera(Object *ob, KX_Scene *kxscene, 
 {
 	Camera *ca = static_cast<Camera *>(ob->data);
 	RAS_CameraData camdata(ca->lens, ca->ortho_scale, ca->sensor_x, ca->sensor_y, ca->sensor_fit, ca->shiftx, ca->shifty, ca->clipsta, ca->clipend, ca->type == CAM_PERSP, ca->YF_dofdist, camZoom);
-	KX_Camera *gamecamera;
 
-	gamecamera = new KX_Camera(kxscene, KX_Scene::m_callbacks, camdata);
+	KX_Camera *gamecamera = new KX_Camera(camdata);
 	gamecamera->SetName(ca->id.name + 2);
 
 	if (ca->gameflag & GAME_CAM_VIEWPORT) {
@@ -968,17 +988,14 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 			Mesh *mesh = static_cast<Mesh *>(ob->data);
 			KX_Mesh *meshobj = BL_ConvertMesh(mesh, ob, kxscene, converter);
 
-			// needed for python scripting
-			kxscene->GetLogicManager()->RegisterMeshName(meshobj->GetName(), meshobj);
-
 			if (ob->gameflag & OB_NAVMESH) {
-				gameobj = new KX_NavMeshObject(kxscene, KX_Scene::m_callbacks);
+				gameobj = new KX_NavMeshObject();
 				gameobj->AddMesh(meshobj);
 				break;
 			}
 
 
-			KX_GameObject *deformableGameObj = new KX_GameObject(kxscene, KX_Scene::m_callbacks);
+			KX_GameObject *deformableGameObj = new KX_GameObject();
 			gameobj = deformableGameObj;
 
 			// set transformation
@@ -998,14 +1015,14 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 
 		case OB_ARMATURE:
 		{
-			gameobj = new BL_ArmatureObject(kxscene, KX_Scene::m_callbacks, ob, kxscene->GetBlenderScene());
+			gameobj = new BL_ArmatureObject(ob, kxscene->GetBlenderScene());
 
 			break;
 		}
 
 		case OB_EMPTY:
 		{
-			gameobj = new KX_EmptyObject(kxscene, KX_Scene::m_callbacks);
+			gameobj = new KX_EmptyObject();
 
 			break;
 		}
@@ -1013,8 +1030,7 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 		case OB_FONT:
 		{
 			// Font objects have no bounding box.
-			KX_FontObject *fontobj = new KX_FontObject(kxscene, KX_Scene::m_callbacks, rendertools,
-			                                           kxscene->GetBoundingBoxManager(), ob);
+			KX_FontObject *fontobj = new KX_FontObject(kxscene->GetBoundingBoxManager(), ob);
 			gameobj = fontobj;
 
 			kxscene->GetFontList()->Add(CM_AddRef(fontobj));
@@ -1033,13 +1049,14 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 			 * see : https://github.com/youle31/EEVEEinUPBGE/commit/ff11e0fdea4dfc121a7eaa7b7d48183eaf5fd9f6
 			 * for comments about culling.
 			 */
-			gameobj = new KX_EmptyObject(kxscene, KX_Scene::m_callbacks);
+			gameobj = new KX_EmptyObject();
 			break;
 		}
 #endif
 	}
 	if (gameobj) {
 		gameobj->SetLayer(ob->lay);
+		gameobj->SetPassIndex(ob->index);
 		BL_ConvertObjectInfo *info = converter.GetObjectInfo(ob);
 		gameobj->SetConvertObjectInfo(info);
 		gameobj->SetObjectColor(mt::vec4(ob->col));
@@ -1047,6 +1064,10 @@ static KX_GameObject *BL_GameObjectFromBlenderObject(Object *ob, KX_Scene *kxsce
 		if (ob->restrictflag & OB_RESTRICT_RENDER) {
 			gameobj->SetVisible(false, false);
 		}
+
+		KX_NormalParentRelation *parentRelation = new KX_NormalParentRelation();
+		SG_Node *node = new SG_Node(gameobj, kxscene, KX_Scene::m_callbacks, parentRelation);
+		gameobj->SetNode(node);
 	}
 
 	return gameobj;
@@ -1136,7 +1157,7 @@ static void BL_ConvertComponentsObject(KX_GameObject *gameobj, Object *blenderob
 			if (PyErr_Occurred()) {
 				PyErr_Print();
 			}
-			CM_Error("coulding import the module '" << pc->module << "'");
+			CM_Error("Failed to import the module '" << pc->module << "'");
 			pc = pc->next;
 			continue;
 		}
@@ -1224,12 +1245,12 @@ static void bl_ConvertBlenderObject_Single(BL_SceneConverter& converter,
 	// Update children/parent hierarchy.
 	if (blenderobject->parent != 0) {
 		// Blender has an additional 'parentinverse' offset in each object.
-		SG_Callbacks callback(nullptr, nullptr, nullptr, KX_Scene::KX_ScenegraphUpdateFunc, KX_Scene::KX_ScenegraphRescheduleFunc);
-		SG_Node *parentinversenode = new SG_Node(nullptr, kxscene, callback);
 
 		// Define a normal parent relationship for this node.
 		KX_NormalParentRelation *parent_relation = new KX_NormalParentRelation();
-		parentinversenode->SetParentRelation(parent_relation);
+
+		SG_Callbacks callback(nullptr);
+		SG_Node *parentinversenode = new SG_Node(nullptr, kxscene, callback, parent_relation);
 
 		BL_ParentChildLink pclink;
 		pclink.m_blenderchild = blenderobject;
@@ -1243,7 +1264,9 @@ static void bl_ConvertBlenderObject_Single(BL_SceneConverter& converter,
 		parentinversenode->SetLocalPosition(mt::vec3(invp_loc));
 		parentinversenode->SetLocalOrientation(mt::mat3(invp_rot));
 		parentinversenode->SetLocalScale(mt::vec3(invp_size));
-		parentinversenode->AddChild(gameobj->GetNode());
+
+		SG_Node *childNode = gameobj->GetNode();
+		childNode->SetParent(parentinversenode);
 	}
 
 	// Needed for python scripting.
@@ -1417,18 +1440,11 @@ void BL_ConvertBlenderObjects(struct Main *maggie,
 
 	EXP_ListValue<KX_GameObject> *objectlist = kxscene->GetObjectList();
 	EXP_ListValue<KX_GameObject> *inactivelist = kxscene->GetInactiveList();
-	EXP_ListValue<KX_GameObject> *parentlist = kxscene->GetRootParentList();
 
 	SCA_LogicManager *logicmgr = kxscene->GetLogicManager();
 	SCA_TimeEventManager *timemgr = kxscene->GetTimeEventManager();
 
 	EXP_ListValue<KX_GameObject> *logicbrick_conversionlist = new EXP_ListValue<KX_GameObject>();
-
-	// Convert actions to actionmap.
-	bAction *curAct;
-	for (curAct = (bAction *)maggie->action.first; curAct; curAct = (bAction *)curAct->id.next) {
-		logicmgr->RegisterActionName(curAct->id.name + 2, curAct);
-	}
 
 	BL_SetBlenderSceneBackground(blenderscene);
 
@@ -1589,19 +1605,11 @@ void BL_ConvertBlenderObjects(struct Main *maggie,
 			}
 		}
 
-		parentobj->GetNode()->AddChild(link.m_gamechildnode);
+		link.m_gamechildnode->SetParent(parentobj->GetNode());
 	}
 	vec_parent_child.clear();
 
 	const std::vector<KX_GameObject *>& sumolist = converter.GetObjects();
-
-	// Find 'root' parents (object that has not parents in SceneGraph).
-	for (KX_GameObject *gameobj : sumolist) {
-		if (!gameobj->GetNode()->GetParent()) {
-			parentlist->Add(CM_AddRef(gameobj));
-			gameobj->NodeUpdate();
-		}
-	}
 
 	for (KX_GameObject *gameobj : objectlist) {
 		// Init mesh users, mesh slots and deformers.
@@ -1676,38 +1684,6 @@ void BL_ConvertBlenderObjects(struct Main *maggie,
 		}
 	}
 
-	// Look at every material texture and ask to create realtime cube map.
-	for (KX_GameObject *gameobj : sumolist) {
-		for (KX_Mesh *mesh : gameobj->GetMeshList()) {
-			for (RAS_MeshMaterial *meshmat : mesh->GetMeshMaterialList()) {
-				RAS_IMaterial *mat = meshmat->GetBucket()->GetMaterial();
-
-				for (unsigned short k = 0; k < RAS_Texture::MaxUnits; ++k) {
-					RAS_Texture *tex = mat->GetTexture(k);
-					if (!tex || !tex->Ok()) {
-						continue;
-					}
-
-					EnvMap *env = tex->GetTex()->env;
-					if (!env || env->stype != ENV_REALT) {
-						continue;
-					}
-
-					KX_GameObject *viewpoint = gameobj;
-					if (env->object) {
-						KX_GameObject *obj = converter.FindGameObject(env->object);
-						if (obj) {
-							viewpoint = obj;
-						}
-					}
-
-					KX_TextureRendererManager::RendererType type = tex->IsCubeMap() ? KX_TextureRendererManager::CUBE : KX_TextureRendererManager::PLANAR;
-					kxscene->GetTextureRendererManager()->AddRenderer(type, tex, viewpoint);
-				}
-			}
-		}
-	}
-
 	// Create and set bounding volume.
 	for (KX_GameObject *gameobj : sumolist) {
 		Object *blenderobject = gameobj->GetBlenderObject();
@@ -1729,7 +1705,8 @@ void BL_ConvertBlenderObjects(struct Main *maggie,
 			RAS_BoundingBox *boundingBox = meshobj->GetBoundingBox();
 			// Get the AABB.
 			boundingBox->GetAabb(aabbMin, aabbMax);
-			gameobj->SetBoundsAabb(aabbMin, aabbMax);
+			gameobj->GetAabb().Set(aabbMin, aabbMax);
+			gameobj->UpdateGraphicController();
 		}
 		else {
 			// The object allow AABB auto update only if there's no predefined bound.
@@ -1852,19 +1829,6 @@ void BL_ConvertBlenderObjects(struct Main *maggie,
 	// Cleanup converted set of group objects.
 	convertedlist->Release();
 	logicbrick_conversionlist->Release();
-
-	/* Instantiate dupli group, we will loop trough the object
-	 * that are in active layers. Note that duplicating group
-	 * has the effect of adding objects at the end of objectlist.
-	 * Only loop through the first part of the list.
-	 */
-	int objcount = objectlist->GetCount();
-	for (unsigned int i = 0; i < objcount; ++i) {
-		KX_GameObject *gameobj = objectlist->GetValue(i);
-		if (gameobj->IsDupliGroup()) {
-			kxscene->DupliGroupRecurse(gameobj, 0);
-		}
-	}
 }
 
 void BL_PostConvertBlenderObjects(KX_Scene *kxscene, const BL_SceneConverter& sceneconverter)
@@ -1893,5 +1857,55 @@ void BL_PostConvertBlenderObjects(KX_Scene *kxscene, const BL_SceneConverter& sc
 	}
 
 #endif  // WITH_PYTHON
+
+	// Init textures for all materials.
+	for (KX_BlenderMaterial *mat : sceneconverter.GetMaterials()) {
+		mat->InitTextures();
+	}
+
+	// Look at every material texture and ask to create realtime map.
+	for (KX_GameObject *gameobj : sumolist) {
+		for (KX_Mesh *mesh : gameobj->GetMeshList()) {
+			for (RAS_MeshMaterial *meshmat : mesh->GetMeshMaterialList()) {
+				RAS_IMaterial *mat = meshmat->GetBucket()->GetMaterial();
+
+				for (unsigned short k = 0; k < RAS_Texture::MaxUnits; ++k) {
+					RAS_Texture *tex = mat->GetTexture(k);
+					if (!tex || !tex->Ok()) {
+						continue;
+					}
+
+					EnvMap *env = tex->GetTex()->env;
+					if (!env || env->stype != ENV_REALT) {
+						continue;
+					}
+
+					KX_GameObject *viewpoint = gameobj;
+					if (env->object) {
+						KX_GameObject *obj = sceneconverter.FindGameObject(env->object);
+						if (obj) {
+							viewpoint = obj;
+						}
+					}
+
+					KX_TextureRendererManager::RendererType type = tex->IsCubeMap() ? KX_TextureRendererManager::CUBE : KX_TextureRendererManager::PLANAR;
+					kxscene->GetTextureRendererManager()->AddRenderer(type, tex, viewpoint);
+				}
+			}
+		}
+	}
+
+	/* Instantiate dupli group, we will loop trough the object
+	 * that are in active layers. Note that duplicating group
+	 * has the effect of adding objects at the end of objectlist.
+	 * Only loop through the first part of the list.
+	 */
+	const unsigned int objcount = objectlist->GetCount();
+	for (unsigned int i = 0; i < objcount; ++i) {
+		KX_GameObject *gameobj = objectlist->GetValue(i);
+		if (gameobj->IsDupliGroup()) {
+			kxscene->DupliGroupRecurse(gameobj, 0);
+		}
+	}
 }
 

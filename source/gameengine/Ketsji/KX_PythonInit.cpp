@@ -716,7 +716,7 @@ static PyObject *gLibNew(PyObject *, PyObject *args)
 
 	BL_Converter *converter = KX_GetActiveEngine()->GetConverter();
 
-	if (converter->GetMainDynamicPath(path)) {
+	if (converter->ExistLibrary(path)) {
 		PyErr_SetString(PyExc_KeyError, "the name of the path given exists");
 		return nullptr;
 	}
@@ -727,7 +727,7 @@ static PyObject *gLibNew(PyObject *, PyObject *args)
 		return nullptr;
 	}
 
-	Main *maggie = converter->CreateMainDynamic(path);
+	Main *maggie = converter->CreateLibrary(path);
 
 	/* Copy the object into main */
 	if (idcode == ID_ME) {
@@ -773,11 +773,11 @@ static PyObject *gLibFree(PyObject *, PyObject *args)
 
 static PyObject *gLibList(PyObject *, PyObject *args)
 {
-	const std::vector<Main *> &dynMaggie = KX_GetActiveEngine()->GetConverter()->GetMainDynamic();
-	PyObject *list = PyList_New(dynMaggie.size());
+	const std::vector<std::string> names = KX_GetActiveEngine()->GetConverter()->GetLibraryNames();
+	PyObject *list = PyList_New(names.size());
 
-	for (unsigned short i = 0, size = dynMaggie.size(); i < size; ++i) {
-		PyList_SET_ITEM(list, i, PyUnicode_FromString(dynMaggie[i]->name));
+	for (unsigned short i = 0, size = names.size(); i < size; ++i) {
+		PyList_SET_ITEM(list, i, PyUnicode_FromStdString(names[i]));
 	}
 
 	return list;
@@ -1189,7 +1189,12 @@ static PyObject *gPySetAnisotropicFiltering(PyObject *, PyObject *args)
 		return nullptr;
 	}
 
-	KX_GetActiveEngine()->GetRasterizer()->SetAnisotropicFiltering(level);
+	KX_KetsjiEngine *engine = KX_GetActiveEngine();
+	engine->GetRasterizer()->SetAnisotropicFiltering(level);
+
+	for (KX_Scene *scene : engine->CurrentScenes()) {
+		scene->GetTextureRendererManager()->ReloadTextures();
+	}
 
 	Py_RETURN_NONE;
 }
@@ -1283,7 +1288,13 @@ static PyObject *gPySetMipmapping(PyObject *, PyObject *args)
 		return nullptr;
 	}
 
-	KX_GetActiveEngine()->GetRasterizer()->SetMipmapping((RAS_Rasterizer::MipmapOption)val);
+	KX_KetsjiEngine *engine = KX_GetActiveEngine();
+	engine->GetRasterizer()->SetMipmapping((RAS_Rasterizer::MipmapOption)val);
+
+	for (KX_Scene *scene : engine->CurrentScenes()) {
+		scene->GetTextureRendererManager()->ReloadTextures();
+	}
+
 	Py_RETURN_NONE;
 }
 
@@ -2049,6 +2060,13 @@ void initPlayerPython(int argc, char **argv)
 
 	// Find local python installation.
 	PyC_SetHomePath(py_path_bundle);
+
+	/* without this the sys.stdout may be set to 'ascii'
+	 * (it is on my system at least), where printing unicode values will raise
+	 * an error, this is highly annoying, another stumbling block for devs,
+	 * so use a more relaxed error handler and enforce utf-8 since the rest of
+	 * blender is utf-8 too - campbell */
+	Py_SetStandardStreamEncoding("utf-8", "surrogateescape");
 
 	Py_Initialize();
 

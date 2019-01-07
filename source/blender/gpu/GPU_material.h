@@ -68,6 +68,7 @@ typedef struct GPUParticleInfo GPUParticleInfo;
 /* Functions to create GPU Materials nodes */
 
 typedef enum GPUType {
+	/* Types taken into account by GPU_DATATYPE_STR and GPU_DATATYPE_SIZE arrays */
 	/* The value indicates the number of elements in each type */
 	GPU_NONE = 0,
 	GPU_FLOAT = 1,
@@ -77,7 +78,8 @@ typedef enum GPUType {
 	GPU_MAT3 = 9,
 	GPU_MAT4 = 16,
 
-	GPU_INT = 17,
+	GPU_INT = 17, /* this value doesn't point the number of elements */
+	/* end of types taken into account by GPU_DATATYPE_STR and GPU_DATATYPE_SIZE arrays */
 
 	GPU_TEX2D = 1002,
 	GPU_SHADOW2D = 1003,
@@ -105,13 +107,15 @@ typedef enum GPUBuiltin {
 	GPU_INSTANCING_INVERSE_MATRIX  = (1 << 16),
 	GPU_INSTANCING_COLOR           = (1 << 17),
 	GPU_INSTANCING_LAYER           = (1 << 18),
-	GPU_INSTANCING_COLOR_ATTRIB    = (1 << 19),
-	GPU_INSTANCING_MATRIX_ATTRIB   = (1 << 20),
-	GPU_INSTANCING_POSITION_ATTRIB = (1 << 21),
-	GPU_INSTANCING_LAYER_ATTRIB    = (1 << 22),
-	GPU_TIME                       = (1 << 23),
-	GPU_OBJECT_INFO                = (1 << 24),
-	GPU_OBJECT_LAY                 = (1 << 25)
+	GPU_INSTANCING_INFO            = (1 << 19),
+	GPU_INSTANCING_COLOR_ATTRIB    = (1 << 20),
+	GPU_INSTANCING_MATRIX_ATTRIB   = (1 << 21),
+	GPU_INSTANCING_POSITION_ATTRIB = (1 << 22),
+	GPU_INSTANCING_LAYER_ATTRIB    = (1 << 23),
+	GPU_INSTANCING_INFO_ATTRIB     = (1 << 24),
+	GPU_TIME                       = (1 << 25),
+	GPU_OBJECT_INFO                = (1 << 26),
+	GPU_OBJECT_LAY                 = (1 << 27)
 } GPUBuiltin;
 
 typedef enum GPUOpenGLBuiltin {
@@ -264,10 +268,13 @@ void GPU_node_link_set_type(GPUNodeLink *link, GPUType type);
 bool GPU_link(GPUMaterial *mat, const char *name, ...);
 bool GPU_stack_link(GPUMaterial *mat, const char *name, GPUNodeStack *in, GPUNodeStack *out, ...);
 
-void GPU_material_output_link(GPUMaterial *material, GPUNodeLink *link);
+void GPU_material_output_link(GPUMaterial *material, GPUNodeLink *link, unsigned short index);
 void GPU_material_enable_alpha(GPUMaterial *material);
 GPUBuiltin GPU_get_material_builtins(GPUMaterial *material);
 GPUBlendMode GPU_material_alpha_blend(GPUMaterial *material, const float obcol[4]);
+
+/// Possibly translate builtin to instancing builtin if instancing enabled and return node.
+GPUNodeLink *GPU_material_builtin(GPUMaterial *mat, GPUBuiltin builtin);
 
 /* High level functions to create and use GPU materials */
 GPUMaterial *GPU_material_world(struct Scene *scene, struct World *wo, GPUMaterialFlag flags);
@@ -371,14 +378,14 @@ void GPU_lamp_free(struct Object *ob);
 
 bool GPU_lamp_has_shadow_buffer(GPULamp *lamp);
 void GPU_lamp_update_buffer_mats(GPULamp *lamp);
-void GPU_lamp_shadow_buffer_bind(GPULamp *lamp, float viewmat[4][4], int *winsize, float winmat[4][4]);
+void GPU_lamp_shadow_buffer_bind(GPULamp *lamp);
 void GPU_lamp_shadow_buffer_unbind(GPULamp *lamp);
 int GPU_lamp_shadow_buffer_type(GPULamp *lamp);
 int GPU_lamp_shadow_bind_code(GPULamp *lamp);
-const float *GPU_lamp_dynpersmat(GPULamp *lamp);
-const float *GPU_lamp_get_viewmat(GPULamp *lamp);
-const float *GPU_lamp_get_winmat(GPULamp *lamp);
-
+float (*GPU_lamp_dynpersmat(GPULamp *lamp))[4];
+float (*GPU_lamp_get_viewmat(GPULamp *lamp))[4];
+float (*GPU_lamp_get_winmat(GPULamp *lamp))[4];
+int GPU_lamp_shadow_size(GPULamp *lamp);
 
 void GPU_lamp_update(GPULamp *lamp, int lay, int hide, float obmat[4][4]);
 void GPU_lamp_update_colors(GPULamp *lamp, float r, float g, float b, float energy);
@@ -415,7 +422,7 @@ void GPU_material_update_fvar_offset(GPUMaterial *gpu_material,
 
 /* Instancing material */
 bool GPU_material_use_instancing(GPUMaterial *material);
-void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffset, void *positionoffset, void *coloroffset, void *layeroffset);
+void GPU_material_bind_instancing_attrib(GPUMaterial *material, void *matrixoffset, void *positionoffset, void *coloroffset, void *layeroffset, void *infooffset);
 
 #ifdef __cplusplus
 }

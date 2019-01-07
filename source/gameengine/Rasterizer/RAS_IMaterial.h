@@ -95,6 +95,7 @@ protected:
 	float m_zoffset;
 	int m_rasMode;
 	unsigned int m_flag;
+	short m_passIndex;
 
 	RAS_Texture *m_textures[RAS_Texture::MaxUnits];
 
@@ -104,11 +105,11 @@ public:
 	virtual ~RAS_IMaterial();
 
 	/// Prepare the material data for rendering.
-	virtual void Prepare(RAS_Rasterizer *rasty) = 0;
+	virtual void Prepare(RAS_Rasterizer *rasty, unsigned short viewportIndex) = 0;
 	virtual void Activate(RAS_Rasterizer *rasty) = 0;
 	virtual void Desactivate(RAS_Rasterizer *rasty) = 0;
 	virtual void ActivateInstancing(RAS_Rasterizer *rasty, RAS_InstancingBuffer *buffer) = 0;
-	virtual void ActivateMeshSlot(RAS_MeshSlot *ms, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans) = 0;
+	virtual void ActivateMeshUser(RAS_MeshUser *meshUser, RAS_Rasterizer *rasty, const mt::mat3x4& camtrans) = 0;
 
 	bool IsAlpha() const;
 	bool IsAlphaDepth() const;
@@ -127,6 +128,7 @@ public:
 	bool IsAlphaShadow() const;
 	bool CastsShadows() const;
 	bool OnlyShadow() const;
+	short GetPassIndex() const;
 	RAS_Texture *GetTexture(unsigned int index);
 
 	virtual const std::string GetTextureName() const = 0;
