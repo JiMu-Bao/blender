@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,12 +15,6 @@
  *
  * The Original Code is Copyright (C) 2006 Blender Foundation.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): Brecht Van Lommel.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 /** \file blender/gpu/intern/gpu_material.c
@@ -170,7 +162,7 @@ struct GPULamp {
 	float shadow_color[3];
 
 	float bias, slopebias, d, clipend;
-	int size;
+	int size, blurpass;
 
 	int falloff_type;
 	struct CurveMapping *curfalloff;
@@ -2749,6 +2741,7 @@ static void gpu_lamp_from_blender(Scene *scene, Object *ob, Object *par, Lamp *l
 	lamp->size = la->bufsize;
 	lamp->d = la->clipsta;
 	lamp->clipend = la->clipend;
+	lamp->blurpass = la->blurpass;
 
 	/* arbitrary correction for the fact we do no soft transition */
 	lamp->bias *= 0.25f;
@@ -2978,7 +2971,7 @@ void GPU_lamp_shadow_buffer_unbind(GPULamp *lamp)
 {
 	if (lamp->la->shadowmap_type == LA_SHADMAP_VARIANCE) {
 		GPU_shader_unbind();
-		GPU_framebuffer_blur(lamp->fb, lamp->tex, lamp->blurfb, lamp->blurtex, lamp->la->bufsharp);
+		GPU_framebuffer_blur(lamp->fb, lamp->tex, lamp->blurfb, lamp->blurtex, lamp->la->bufsharp, lamp->la->blurpass);
 	}
 
 	GPU_framebuffer_texture_unbind(lamp->fb, lamp->tex);

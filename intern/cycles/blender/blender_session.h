@@ -146,6 +146,9 @@ public:
 	static bool print_render_stats;
 
 protected:
+	void stamp_view_layer_metadata(const string& view_layer_name);
+	void stamp_view_layer_metadata_do(const string& prefix);
+
 	void do_write_update_render_result(BL::RenderResult& b_rr,
 	                                   BL::RenderLayer& b_rlay,
 	                                   RenderTile& rtile,
@@ -173,4 +176,4 @@ protected:
 
 CCL_NAMESPACE_END
 
-#endif /* __BLENDER_SESSION_H__ */
+#endif  /* __BLENDER_SESSION_H__ */

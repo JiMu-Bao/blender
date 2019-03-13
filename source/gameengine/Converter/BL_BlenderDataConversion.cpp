@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,12 +15,6 @@
  *
  * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  * Convert blender data to ketsji
  */
 
@@ -874,6 +866,7 @@ static KX_LightObject *BL_GameLightFromBlenderLamp(Lamp *la, unsigned int layerf
 	lightobj->m_shadowclipend = la->clipend;
 	lightobj->m_shadowbias = la->bias;
 	lightobj->m_shadowbleedbias = la->bleedbias;
+	lightobj->m_shadowblurpass = la->blurpass;
 	lightobj->m_shadowmaptype = la->shadowmap_type;
 	lightobj->m_shadowfrustumsize = la->shadow_frustum_size;
 	lightobj->m_shadowcolor = mt::vec3(la->shdwr, la->shdwg, la->shdwb);

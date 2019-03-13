@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,12 +15,6 @@
  *
  * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  * Initialize Python thingies.
  */
 
@@ -1204,6 +1196,33 @@ static PyObject *gPyGetAnisotropicFiltering(PyObject *, PyObject *args)
 	return PyLong_FromLong(KX_GetActiveEngine()->GetRasterizer()->GetAnisotropicFiltering());
 }
 
+static PyObject *gPySetAntiAliasing(PyObject *, PyObject *args)
+{
+	short level;
+
+	if (!PyArg_ParseTuple(args, "h:setAntiAliasing", &level)) {
+		return nullptr;
+	}
+
+	if (!ELEM(level, 0, 2, 4, 8, 16)) {
+		PyErr_SetString(PyExc_ValueError, "Rasterizer.setAntiAliasing(level): Expected value of 0, 2, 4, 8, or 16 for value");
+		return nullptr;
+	}
+
+	RAS_ICanvas *canvas = KX_GetActiveEngine()->GetCanvas();
+	canvas->SetSamples(level);
+
+	// Recreate off screens.
+	canvas->UpdateOffScreens();
+
+	Py_RETURN_NONE;
+}
+
+static PyObject *gPyGetAntiAliasing(PyObject *, PyObject *args)
+{
+	return PyLong_FromLong(KX_GetActiveEngine()->GetCanvas()->GetSamples());
+}
+
 static PyObject *gPyDrawLine(PyObject *, PyObject *args)
 {
 	PyObject *ob_from;
@@ -1436,6 +1455,10 @@ static struct PyMethodDef rasterizer_methods[] = {
 	 METH_VARARGS, "set the anisotropic filtering level (must be one of 1, 2, 4, 8, 16)"},
 	{"getAnisotropicFiltering", (PyCFunction)gPyGetAnisotropicFiltering,
 	 METH_VARARGS, "get the anisotropic filtering level"},
+	{"setAntiAliasing", (PyCFunction)gPySetAntiAliasing,
+	 METH_VARARGS, "set the anti aliasing level (must be one of 0, 2, 4, 8, 16)"},
+	{"getAntiAliasing", (PyCFunction)gPyGetAntiAliasing,
+	 METH_VARARGS, "get the anti aliasing level"},
 	{"drawLine", (PyCFunction)gPyDrawLine,
 	 METH_VARARGS, "draw a line on the screen"},
 	{"setWindowSize", (PyCFunction)gPySetWindowSize, METH_VARARGS, ""},

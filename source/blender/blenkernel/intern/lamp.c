@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,12 +15,6 @@
  *
  * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 /** \file blender/blenkernel/intern/lamp.c
@@ -70,6 +62,7 @@ void BKE_lamp_init(Lamp *la)
 	la->clipend = 40.0f;
 	la->samp = 3;
 	la->bias = 1.0f;
+	la->blurpass = 1;
 	la->soft = 3.0f;
 	la->compressthresh = 0.05f;
 	la->ray_samp = la->ray_sampy = la->ray_sampz = 1;
@@ -123,7 +116,7 @@ Lamp *BKE_lamp_add(Main *bmain, const char *name)
  *
  * WARNING! This function will not handle ID user count!
  *
- * \param flag  Copying options (see BKE_library.h's LIB_ID_COPY_... flags for more).
+ * \param flag: Copying options (see BKE_library.h's LIB_ID_COPY_... flags for more).
  */
 void BKE_lamp_copy_data(Main *bmain, Lamp *la_dst, const Lamp *la_src, const int flag)
 {
@@ -159,12 +152,15 @@ Lamp *BKE_lamp_copy(Main *bmain, const Lamp *la)
 
 Lamp *BKE_lamp_localize(Lamp *la)
 {
-	/* TODO replace with something like
-	 * 	Lamp *la_copy;
-	 * 	BKE_id_copy_ex(bmain, &la->id, (ID **)&la_copy, LIB_ID_COPY_NO_MAIN | LIB_ID_COPY_NO_PREVIEW | LIB_ID_COPY_NO_USER_REFCOUNT, false);
-	 * 	return la_copy;
+	/* TODO(bastien): Replace with something like:
 	 *
-	 * ... Once f*** nodes are fully converted to that too :( */
+	 *   Lamp *la_copy;
+	 *   BKE_id_copy_ex(bmain, &la->id, (ID **)&la_copy,
+	 *                  LIB_ID_COPY_NO_MAIN | LIB_ID_COPY_NO_PREVIEW | LIB_ID_COPY_NO_USER_REFCOUNT,
+	 *                  false);
+	 *   return la_copy;
+	 *
+	 * NOTE: Only possible once nested node trees are fully converted to that too. */
 
 	Lamp *lan;
 	int a;

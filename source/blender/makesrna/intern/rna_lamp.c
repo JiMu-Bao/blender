@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -14,10 +12,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Contributor(s): Blender Foundation (2008).
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 /** \file blender/makesrna/intern/rna_lamp.c
@@ -651,6 +645,12 @@ static void rna_def_lamp_shadow(StructRNA *srna, int spot, int area)
 	RNA_def_property_int_sdna(prop, NULL, "samp");
 	RNA_def_property_range(prop, 1, 16);
 	RNA_def_property_ui_text(prop, "Samples", "Number of shadow buffer samples");
+	RNA_def_property_update(prop, 0, "rna_Lamp_update");
+
+	prop = RNA_def_property(srna, "shadow_blur_passes", PROP_INT, PROP_NONE);
+	RNA_def_property_int_sdna(prop, NULL, "blurpass");
+	RNA_def_property_range(prop, 0, 6);
+	RNA_def_property_ui_text(prop, "Blur Passes", "Number of shadow buffer blur pass (is expensive)");
 	RNA_def_property_update(prop, 0, "rna_Lamp_update");
 
 	prop = RNA_def_property(srna, "shadow_buffer_type", PROP_ENUM, PROP_NONE);

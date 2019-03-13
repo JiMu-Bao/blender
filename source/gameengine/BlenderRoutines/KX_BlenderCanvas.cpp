@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,12 +15,6 @@
  *
  * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 /** \file gameengine/BlenderRoutines/KX_BlenderCanvas.cpp
@@ -54,8 +46,8 @@ extern "C" {
 }
 
 KX_BlenderCanvas::KX_BlenderCanvas(RAS_Rasterizer *rasty, const RAS_OffScreen::AttachmentList& attachments,
-		wmWindowManager *wm, wmWindow *win, RAS_Rect &rect)
-	:RAS_ICanvas(attachments),
+		wmWindowManager *wm, wmWindow *win, RAS_Rect &rect, int numSamples)
+	:RAS_ICanvas(attachments, numSamples),
 	m_wm(wm),
 	m_win(win)
 {

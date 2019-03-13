@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -14,8 +12,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 /** \file gameengine/Rasterizer/RAS_ICanvas.cpp
@@ -60,7 +56,7 @@ struct ScreenshotTaskData {
  * Function that actually performs the image compression and saving to disk of a screenshot.
  * Run in a separate thread by RAS_ICanvas::save_screenshot().
  *
- * @param taskdata Must point to a ScreenshotTaskData object. This function takes ownership
+ * \param taskdata Must point to a ScreenshotTaskData object. This function takes ownership
  *                 of all pointers in the ScreenshotTaskData, and frees them.
  */
 void save_screenshot_thread_func(TaskPool *__restrict pool, void *taskdata, int threadid);
@@ -71,8 +67,8 @@ const int RAS_ICanvas::swapInterval[RAS_ICanvas::SWAP_CONTROL_MAX] = {
 	-1 // VSYNC_ADAPTIVE
 };
 
-RAS_ICanvas::RAS_ICanvas(const RAS_OffScreen::AttachmentList& attachments)
-	:m_samples(0),
+RAS_ICanvas::RAS_ICanvas(const RAS_OffScreen::AttachmentList& attachments, int numSamples)
+	:m_samples(numSamples),
 	m_attachments(attachments),
 	m_swapControl(VSYNC_OFF),
 	m_frame(1)

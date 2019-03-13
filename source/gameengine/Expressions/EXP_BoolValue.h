@@ -9,7 +9,6 @@
  * in supporting documentation.  Erwin Coumans makes no
  * representations about the suitability of this software for any
  * purpose.  It is provided "as is" without express or implied warranty.
- *
  */
 
 /** \file EXP_BoolValue.h
@@ -21,7 +20,8 @@
 
 #include "EXP_Value.h"
 
-/** Smart Boolean Value class.
+/**
+ * Smart Boolean Value class.
  * Is used by parser when an expression tree is build containing booleans.
  */
 class EXP_BoolValue : public EXP_PropValue

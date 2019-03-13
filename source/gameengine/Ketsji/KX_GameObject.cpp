@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,12 +15,6 @@
  *
  * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  * Game object wrapper
  */
 
@@ -420,9 +412,6 @@ void KX_GameObject::RemoveParent()
 	m_node->SetLocalOrientation(m_node->GetWorldOrientation());
 	m_node->SetLocalPosition(m_node->GetWorldPosition());
 
-	m_node->DisconnectFromParent();
-	NodeUpdate();
-
 	if (m_physicsController) {
 		// get the root object to remove us from compound object if needed
 		SG_Node *rootNode = m_node->GetRootSGParent();
@@ -444,6 +433,8 @@ void KX_GameObject::RemoveParent()
 			m_physicsController->SetAngularVelocity(angVel, false);
 		}
 	}
+	m_node->DisconnectFromParent();
+	NodeUpdate();
 	// graphically, the object hasn't change place, no need to update m_graphicController
 }
 

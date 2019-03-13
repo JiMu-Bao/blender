@@ -1,6 +1,4 @@
 /*
- * ***** BEGIN GPL LICENSE BLOCK *****
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -17,12 +15,6 @@
  *
  * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
  * All rights reserved.
- *
- * The Original Code is: all of this file.
- *
- * Contributor(s): none yet.
- *
- * ***** END GPL LICENSE BLOCK *****
  */
 
 /** \file RAS_ICanvas.h
@@ -35,9 +27,9 @@
 #include "RAS_OffScreen.h" // For RAS_OffScreen::Type
 
 class RAS_Rect;
-struct TaskScheduler;
-struct TaskPool;
 struct ImageFormatData;
+struct TaskPool;
+struct TaskScheduler;
 
 /**
  * 2D rendering device context. The connection from 3d rendercontext to 2d surface.
@@ -60,7 +52,7 @@ public:
 		SWAP_CONTROL_MAX
 	};
 
-	RAS_ICanvas(const RAS_OffScreen::AttachmentList& attachments);
+	RAS_ICanvas(const RAS_OffScreen::AttachmentList& attachments, int numSamples);
 	virtual ~RAS_ICanvas();
 
 	virtual void Init() = 0;
@@ -152,6 +144,9 @@ public:
 	 */
 	RAS_OffScreen *GetOffScreen(RAS_OffScreen::Type type);
 
+	/// Update dimensions of all off screens.
+	void UpdateOffScreens();
+
 protected:
 	/// Swap interval value of each swap control mode.
 	static const int swapInterval[SWAP_CONTROL_MAX];
@@ -194,9 +189,6 @@ protected:
 	 * a separate thread.
 	 */
 	void SaveScreeshot(const Screenshot& screenshot, RAS_Rasterizer *rasty);
-
-	/// Update dimensions of all off screens.
-	void UpdateOffScreens();
 };
 
 #endif  // __RAS_ICANVAS_H__

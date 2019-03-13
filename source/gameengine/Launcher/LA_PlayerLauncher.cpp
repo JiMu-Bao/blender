@@ -144,6 +144,7 @@ KX_ExitInfo LA_PlayerLauncher::EngineNextFrame()
 		GHOST_Rect bnds;
 		m_mainWindow->getClientBounds(bnds);
 		m_canvas->Resize(bnds.getWidth(), bnds.getHeight());
+		m_canvas->UpdateOffScreens();
 		m_ketsjiEngine->Resize();
 		m_inputDevice->ConvertEvent(SCA_IInputDevice::WINRESIZE, 0, 0);
 	}
@@ -151,7 +152,7 @@ KX_ExitInfo LA_PlayerLauncher::EngineNextFrame()
 	return LA_Launcher::EngineNextFrame();
 }
 
-RAS_ICanvas *LA_PlayerLauncher::CreateCanvas(RAS_Rasterizer *rasty, const RAS_OffScreen::AttachmentList& attachments)
+RAS_ICanvas *LA_PlayerLauncher::CreateCanvas(RAS_Rasterizer *rasty, const RAS_OffScreen::AttachmentList& attachments, int numSamples)
 {
-	return (new GPG_Canvas(rasty, attachments, m_mainWindow));
+	return (new GPG_Canvas(rasty, attachments, m_mainWindow, numSamples));
 }
